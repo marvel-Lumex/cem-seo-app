@@ -2,6 +2,7 @@ services:
   - type: web
     name: cem-seo-backend
     runtime: node
+    rootDir: backend
     plan: free
     buildCommand: npm install
     startCommand: npm start
@@ -12,4 +13,4 @@ services:
         value: 4000
       - key: DATABASE_URL
         sync: false
-     rootDir: backend
+     
