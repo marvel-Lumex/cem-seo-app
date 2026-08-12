@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cem-seo-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false
