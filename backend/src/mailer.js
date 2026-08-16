@@ -35,4 +35,21 @@ async function sendVerificationEmail(toEmail, name, code) {
   return { sent: true, devMode: false };
 }
 
-module.exports = { sendVerificationEmail, isConfigured };
+async function sendPasswordResetEmail(toEmail, name, resetLink) {
+  if (!transporter) {
+    console.log(`\n[DEV MODE - no SMTP configured] Password reset link for ${toEmail}:\n${resetLink}\n`);
+    return { sent: false, devMode: true };
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || `"Cem SEO" <${process.env.SMTP_USER}>`,
+    to: toEmail,
+    subject: "Reset your Cem SEO password",
+    text: `Hi ${name},\n\nWe received a request to reset your password. Click the link below to choose a new one:\n${resetLink}\n\nThis link expires in 30 minutes. If you didn't request this, you can safely ignore this email.`,
+    html: `<p>Hi ${name},</p><p>We received a request to reset your password. Click the link below to choose a new one:</p><p><a href="${resetLink}">${resetLink}</a></p><p>This link expires in 30 minutes. If you didn't request this, you can safely ignore this email.</p>`,
+  });
+
+  return { sent: true, devMode: false };
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, isConfigured };

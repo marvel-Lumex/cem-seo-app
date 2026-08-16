@@ -5,8 +5,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const { seedProjectsForUser } = require("../db/seed");
 const { requireAuth } = require("../middleware/auth");
-const { sendVerificationEmail } = require("../mailer");
-
+const { sendVerificationEmail, sendPasswordResetEmail } = require("../mailer");
 const router = express.Router();
 
 function generateCode() {
@@ -162,4 +161,87 @@ router.put("/notification-prefs", requireAuth, async (req, res) => {
   res.json({ emailNotifications: !!emailNotifications, pushNotifications: !!pushNotifications, weeklyReport: !!weeklyReport });
 });
 
+router.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  const { rows } = await db.query("SELECT id, name, email FROM users WHERE email = $1", [email.toLowerCase()]);
+  const user = rows[0];
+
+  if (user) {
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    await db.query(
+      "UPDATE users SET reset_token_hash = $1, reset_token_expires = $2 WHERE id = $3",
+      [tokenHash, expires, user.id]
+    );
+
+    const resetLink = `${process.env.APP_URL || "https://cem-seo-backend.onrender.com"}/reset-password?token=${rawToken}&id=${user.id}`;
+    await sendPasswordResetEmail(user.email, user.name, resetLink);
+  }
+
+  res.json({ message: "If an account with that email exists, a reset link has been sent." });
+});
+
+router.post("/reset-password", async (req, res) => {
+  const { userId, token, newPassword } = req.body;
+  if (!userId || !token || !newPassword) {
+    return res.status(400).json({ error: "userId, token, and newPassword are required" });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
+
+  const { rows } = await db.query(
+    "SELECT id, reset_token_hash, reset_token_expires FROM users WHERE id = $1",
+    [userId]
+  );
+  const user = rows[0];
+
+  if (!user || !user.reset_token_hash) {
+    return res.status(400).json({ error: "Invalid or expired reset link" });
+  }
+
+  if (new Date(user.reset_token_expires) < new Date()) {
+    return res.status(400).json({ error: "Reset link has expired" });
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  if (tokenHash !== user.reset_token_hash) {
+    return res.status(400).json({ error: "Invalid or expired reset link" });
+  }
+
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+  await db.query(
+    "UPDATE users SET password_hash = $1, reset_token_hash = NULL, reset_token_expires = NULL WHERE id = $2",
+    [passwordHash, userId]
+  );
+
+  res.json({ message: "Password reset successfully" });
+});
+
+router.post("/change-password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "currentPassword and newPassword are required" });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
+
+  const { rows } = await db.query("SELECT id, password_hash FROM users WHERE id = $1", [req.userId]);
+  const user = rows[0];
+  if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: "Current password is incorrect" });
+  }
+
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+  await db.query("UPDATE users SET password_hash = $1 WHERE id = $2", [passwordHash, req.userId]);
+
+  res.json({ message: "Password changed successfully" });
+});
 module.exports = router;

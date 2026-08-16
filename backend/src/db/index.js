@@ -29,7 +29,11 @@ async function init() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS notification_prefs (
+    
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
+CREATE TABLE IF NOT EXISTS notification_prefs (
       user_id INTEGER PRIMARY KEY REFERENCES users(id),
       email_notifications INTEGER DEFAULT 1,
       push_notifications INTEGER DEFAULT 1,
