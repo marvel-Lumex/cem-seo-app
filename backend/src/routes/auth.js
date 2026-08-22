@@ -6,6 +6,7 @@ const db = require("../db");
 const { seedProjectsForUser } = require("../db/seed");
 const { requireAuth } = require("../middleware/auth");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../mailer");
+
 const router = express.Router();
 
 function generateCode() {
@@ -46,7 +47,14 @@ router.post("/signup", async (req, res) => {
   // Give new users demo data so the app isn't empty on first login
   await seedProjectsForUser(userId);
 
-  await sendVerificationEmail(email.toLowerCase(), name, code);
+  try {
+    await sendVerificationEmail(email.toLowerCase(), name, code);
+  } catch (err) {
+    // Don't let an email-provider hiccup break account creation — the
+    // account still exists and the user can request a fresh code via
+    // "Resend code" on the verify-email screen.
+    console.error("Failed to send verification email:", err.message);
+  }
 
   const token = signToken(userId);
   res.status(201).json({
@@ -108,7 +116,12 @@ router.post("/resend-code", requireAuth, async (req, res) => {
     user.id,
   ]);
 
-  await sendVerificationEmail(user.email, user.name, code);
+  try {
+    await sendVerificationEmail(user.email, user.name, code);
+  } catch (err) {
+    console.error("Failed to resend verification email:", err.message);
+    return res.status(502).json({ error: "Couldn't send the email right now. Try again shortly." });
+  }
   res.json({ sent: true });
 });
 
@@ -171,66 +184,67 @@ router.post("/forgot-password", async (req, res) => {
   const user = rows[0];
 
   if (user) {
-    const rawToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-    const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    try {
+      const code = generateCode();
+      const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+      const expires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-    await db.query(
-      "UPDATE users SET reset_token_hash = $1, reset_token_expires = $2 WHERE id = $3",
-      [tokenHash, expires, user.id]
-    );
+      await db.query(
+        "UPDATE users SET reset_token_hash = $1, reset_token_expires = $2 WHERE id = $3",
+        [codeHash, expires, user.id]
+      );
 
-    const resetLink = `${process.env.APP_URL || "https://cem-seo-backend.onrender.com"}/reset-password?token=${rawToken}&id=${user.id}`;
-    await sendPasswordResetEmail(user.email, user.name, resetLink);
+      await sendPasswordResetEmail(user.email, user.name, code);
+    } catch (err) {
+      // Never let an email-provider hiccup take down the whole request —
+      // log it for debugging, but still respond normally below so we don't
+      // leak whether the email send succeeded (also avoids user enumeration).
+      console.error("Failed to send password reset email:", err.message);
+    }
   }
 
-  res.json({ message: "If an account with that email exists, a reset link has been sent." });
+  res.json({ sent: true });
 });
 
 router.post("/reset-password", async (req, res) => {
-  const { userId, token, newPassword } = req.body;
-  if (!userId || !token || !newPassword) {
-    return res.status(400).json({ error: "userId, token, and newPassword are required" });
+  const { email, code, newPassword } = req.body;
+  if (!email || !code || !newPassword) {
+    return res.status(400).json({ error: "email, code, and newPassword are required" });
   }
   if (newPassword.length < 8) {
     return res.status(400).json({ error: "Password must be at least 8 characters" });
   }
 
-  const { rows } = await db.query(
-    "SELECT id, reset_token_hash, reset_token_expires FROM users WHERE id = $1",
-    [userId]
-  );
+  const { rows } = await db.query("SELECT * FROM users WHERE email = $1", [email.toLowerCase()]);
   const user = rows[0];
-
   if (!user || !user.reset_token_hash) {
-    return res.status(400).json({ error: "Invalid or expired reset link" });
+    return res.status(400).json({ error: "Incorrect code" });
   }
 
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+  if (codeHash !== user.reset_token_hash) {
+    return res.status(400).json({ error: "Incorrect code" });
+  }
   if (new Date(user.reset_token_expires) < new Date()) {
-    return res.status(400).json({ error: "Reset link has expired" });
-  }
-
-  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-  if (tokenHash !== user.reset_token_hash) {
-    return res.status(400).json({ error: "Invalid or expired reset link" });
+    return res.status(400).json({ error: "Code expired — request a new one" });
   }
 
   const passwordHash = bcrypt.hashSync(newPassword, 10);
   await db.query(
     "UPDATE users SET password_hash = $1, reset_token_hash = NULL, reset_token_expires = NULL WHERE id = $2",
-    [passwordHash, userId]
+    [passwordHash, user.id]
   );
 
-  res.json({ message: "Password reset successfully" });
+  res.json({ reset: true });
 });
 
-router.post("/change-password", requireAuth, async (req, res) => {
+router.put("/change-password", requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: "currentPassword and newPassword are required" });
   }
   if (newPassword.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters" });
+    return res.status(400).json({ error: "New password must be at least 8 characters" });
   }
 
   const { rows } = await db.query("SELECT id, password_hash FROM users WHERE id = $1", [req.userId]);
@@ -242,6 +256,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
   const passwordHash = bcrypt.hashSync(newPassword, 10);
   await db.query("UPDATE users SET password_hash = $1 WHERE id = $2", [passwordHash, req.userId]);
 
-  res.json({ message: "Password changed successfully" });
+  res.json({ changed: true });
 });
+
 module.exports = router;
