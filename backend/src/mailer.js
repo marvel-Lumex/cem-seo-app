@@ -45,15 +45,15 @@ async function sendVerificationEmail(toEmail, name, code) {
   });
 }
 
-// Now code-based (6 digits) to match signup verification exactly, instead
-// of a clickable link — simpler for a mobile app where there's no web page
-// to land on, and matches the app's existing "enter code" screen.
-async function sendPasswordResetEmail(toEmail, name, code) {
+// Link-based, not code-based — the reset link opens a real web page to
+// finish the reset, so there's no need to background the app and come back
+// with a typed code (which was causing state loss on the user's device).
+async function sendPasswordResetEmail(toEmail, name, resetLink) {
   return sendEmail({
     to: toEmail,
     subject: "Reset your Cem SEO password",
-    text: `Hi ${name},\n\nYou asked to reset your password. Use this code in the app:\n\n${code}\n\nThis code expires in 15 minutes. If you didn't request this, you can safely ignore this email.`,
-    html: `<p>Hi ${name},</p><p>You asked to reset your password. Use this code in the app:</p><h2 style="letter-spacing:4px;">${code}</h2><p>This code expires in 15 minutes. If you didn't request this, you can safely ignore this email.</p>`,
+    text: `Hi ${name},\n\nWe received a request to reset your password. Click the link below to choose a new one:\n${resetLink}\n\nThis link expires in 30 minutes. If you didn't request this, you can safely ignore this email.`,
+    html: `<p>Hi ${name},</p><p>We received a request to reset your password. Click the link below to choose a new one:</p><p><a href="${resetLink}">${resetLink}</a></p><p>This link expires in 30 minutes. If you didn't request this, you can safely ignore this email.</p>`,
   });
 }
 

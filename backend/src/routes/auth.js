@@ -43,16 +43,11 @@ router.post("/signup", async (req, res) => {
   const userId = insertedRows[0].id;
 
   await db.query("INSERT INTO notification_prefs (user_id) VALUES ($1)", [userId]);
-
-  // Give new users demo data so the app isn't empty on first login
   await seedProjectsForUser(userId);
 
   try {
     await sendVerificationEmail(email.toLowerCase(), name, code);
   } catch (err) {
-    // Don't let an email-provider hiccup break account creation — the
-    // account still exists and the user can request a fresh code via
-    // "Resend code" on the verify-email screen.
     console.error("Failed to send verification email:", err.message);
   }
 
@@ -174,6 +169,10 @@ router.put("/notification-prefs", requireAuth, async (req, res) => {
   res.json({ emailNotifications: !!emailNotifications, pushNotifications: !!pushNotifications, weeklyReport: !!weeklyReport });
 });
 
+// Link-based reset: emails a real clickable link instead of a typed code.
+// Chosen over codes specifically because backgrounding the app to copy a
+// code was causing state loss on the user's device — a link opens a normal
+// web page instead, no need to return to the app mid-flow at all.
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
   if (!email) {
@@ -185,20 +184,19 @@ router.post("/forgot-password", async (req, res) => {
 
   if (user) {
     try {
-      const code = generateCode();
-      const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-      const expires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+      const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
       await db.query(
         "UPDATE users SET reset_token_hash = $1, reset_token_expires = $2 WHERE id = $3",
-        [codeHash, expires, user.id]
+        [tokenHash, expires, user.id]
       );
 
-      await sendPasswordResetEmail(user.email, user.name, code);
+      const appUrl = process.env.APP_URL || "https://cem-seo-backend.onrender.com";
+      const resetLink = `${appUrl}/reset-password?token=${rawToken}&id=${user.id}`;
+      await sendPasswordResetEmail(user.email, user.name, resetLink);
     } catch (err) {
-      // Never let an email-provider hiccup take down the whole request —
-      // log it for debugging, but still respond normally below so we don't
-      // leak whether the email send succeeded (also avoids user enumeration).
       console.error("Failed to send password reset email:", err.message);
     }
   }
@@ -206,27 +204,29 @@ router.post("/forgot-password", async (req, res) => {
   res.json({ sent: true });
 });
 
-router.post("/reset-password", async (req, res) => {
-  const { email, code, newPassword } = req.body;
-  if (!email || !code || !newPassword) {
-    return res.status(400).json({ error: "email, code, and newPassword are required" });
+// Called by the web reset-password page (see index.js for the page itself),
+// not directly by the mobile app.
+router.post("/reset-password-token", async (req, res) => {
+  const { id, token, newPassword } = req.body;
+  if (!id || !token || !newPassword) {
+    return res.status(400).json({ error: "id, token, and newPassword are required" });
   }
   if (newPassword.length < 8) {
     return res.status(400).json({ error: "Password must be at least 8 characters" });
   }
 
-  const { rows } = await db.query("SELECT * FROM users WHERE email = $1", [email.toLowerCase()]);
+  const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
   const user = rows[0];
   if (!user || !user.reset_token_hash) {
-    return res.status(400).json({ error: "Incorrect code" });
+    return res.status(400).json({ error: "This reset link is invalid or has already been used." });
   }
 
-  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-  if (codeHash !== user.reset_token_hash) {
-    return res.status(400).json({ error: "Incorrect code" });
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  if (tokenHash !== user.reset_token_hash) {
+    return res.status(400).json({ error: "This reset link is invalid or has already been used." });
   }
   if (new Date(user.reset_token_expires) < new Date()) {
-    return res.status(400).json({ error: "Code expired — request a new one" });
+    return res.status(400).json({ error: "This reset link has expired. Request a new one from the app." });
   }
 
   const passwordHash = bcrypt.hashSync(newPassword, 10);
