@@ -4,27 +4,31 @@ const cors = require("cors");
 const helmet = require("helmet");
 
 const { authLimiter, generalLimiter } = require("./middleware/rateLimit");
+const paystackWebhook = require("./routes/paystackWebhook");
 const authRoutes = require("./routes/auth");
 const dashboardRoutes = require("./routes/dashboard");
 const projectsRoutes = require("./routes/projects");
 const auditRoutes = require("./routes/audit");
 const keywordsRoutes = require("./routes/keywords");
 const searchConsoleRoutes = require("./routes/searchConsole");
+const billingRoutes = require("./routes/billing");
 
 const app = express();
 
-// Sets protective HTTP response headers (prevents clickjacking, disables
-// content-type sniffing, etc.) — standard baseline hardening.
-app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled since the reset-password page uses inline <script>
-
+app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled since some pages here use inline <script>
 app.use(cors());
-app.use(express.json({ limit: "100kb" })); // caps request body size, prevents oversized-payload abuse
+
+// IMPORTANT: the Paystack webhook needs the raw, unparsed request body for
+// its signature check, so it's registered here — before the global
+// express.json() below would otherwise consume and parse that body first.
+app.use("/api/billing/webhook", paystackWebhook);
+
+app.use(express.json({ limit: "100kb" }));
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 // Serves the actual password-reset web page — this is what the email
-// link opens. Plain HTML/CSS/JS, no framework needed, since it only has
-// one job: collect a new password and POST it to the API below.
+// link opens. Plain HTML/CSS/JS, no framework needed.
 app.get("/reset-password", (req, res) => {
   const { token, id } = req.query;
   if (!token || !id) {
@@ -94,15 +98,37 @@ app.get("/reset-password", (req, res) => {
 </html>`);
 });
 
-// Auth routes get the strict rate limit — highest-value target for abuse
-app.use("/api/auth", authLimiter, authRoutes);
+// Where Paystack sends the browser after checkout finishes. The actual
+// account upgrade happens via the webhook above (which is reliable even if
+// the user closes the browser tab too fast) — this page is just a friendly
+// confirmation telling them to go back to the app.
+app.get("/payment-complete", (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment complete — Cem SEO</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 400px; margin: 80px auto; padding: 0 20px; background: #0B0C14; color: #E3E1D6; text-align: center; }
+  h1 { font-size: 22px; }
+  p { color: #94989F; font-size: 14px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <h1>✅ Payment received</h1>
+  <p>You can close this page and return to the Cem SEO app — your plan will update within a few seconds.</p>
+</body>
+</html>`);
+});
 
-// Everything else gets the looser general limit
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/dashboard", generalLimiter, dashboardRoutes);
 app.use("/api/projects", generalLimiter, projectsRoutes);
 app.use("/api/audit", generalLimiter, auditRoutes);
 app.use("/api/keywords", generalLimiter, keywordsRoutes);
 app.use("/api/gsc", generalLimiter, searchConsoleRoutes);
+app.use("/api/billing", generalLimiter, billingRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);
