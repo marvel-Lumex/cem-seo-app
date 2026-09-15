@@ -1,7 +1,9 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 
+const { authLimiter, generalLimiter } = require("./middleware/rateLimit");
 const authRoutes = require("./routes/auth");
 const dashboardRoutes = require("./routes/dashboard");
 const projectsRoutes = require("./routes/projects");
@@ -10,8 +12,13 @@ const keywordsRoutes = require("./routes/keywords");
 const searchConsoleRoutes = require("./routes/searchConsole");
 
 const app = express();
+
+// Sets protective HTTP response headers (prevents clickjacking, disables
+// content-type sniffing, etc.) — standard baseline hardening.
+app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled since the reset-password page uses inline <script>
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "100kb" })); // caps request body size, prevents oversized-payload abuse
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
@@ -87,12 +94,15 @@ app.get("/reset-password", (req, res) => {
 </html>`);
 });
 
-app.use("/api/auth", authRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/projects", projectsRoutes);
-app.use("/api/audit", auditRoutes);
-app.use("/api/keywords", keywordsRoutes);
-app.use("/api/gsc", searchConsoleRoutes);
+// Auth routes get the strict rate limit — highest-value target for abuse
+app.use("/api/auth", authLimiter, authRoutes);
+
+// Everything else gets the looser general limit
+app.use("/api/dashboard", generalLimiter, dashboardRoutes);
+app.use("/api/projects", generalLimiter, projectsRoutes);
+app.use("/api/audit", generalLimiter, auditRoutes);
+app.use("/api/keywords", generalLimiter, keywordsRoutes);
+app.use("/api/gsc", generalLimiter, searchConsoleRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

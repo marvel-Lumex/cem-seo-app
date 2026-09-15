@@ -6,6 +6,7 @@ const db = require("../db");
 const { seedProjectsForUser } = require("../db/seed");
 const { requireAuth } = require("../middleware/auth");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../mailer");
+const { isValidEmail, isValidName, isValidPassword } = require("../utils/validate");
 
 const router = express.Router();
 
@@ -22,11 +23,20 @@ router.post("/signup", async (req, res) => {
   if (!name || !email || !password) {
     return res.status(400).json({ error: "name, email, and password are required" });
   }
-  if (password.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  if (!isValidName(name)) {
+    return res.status(400).json({ error: "Name must be between 1 and 100 characters" });
+  }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: "Please enter a valid email address" });
+  }
+  if (!isValidPassword(password)) {
+    return res.status(400).json({ error: "Password must be between 8 and 128 characters" });
   }
 
-  const { rows: existingRows } = await db.query("SELECT id FROM users WHERE email = $1", [email.toLowerCase()]);
+  const trimmedName = name.trim();
+  const lowerEmail = email.trim().toLowerCase();
+
+  const { rows: existingRows } = await db.query("SELECT id FROM users WHERE email = $1", [lowerEmail]);
   if (existingRows[0]) {
     return res.status(409).json({ error: "An account with this email already exists" });
   }
@@ -38,7 +48,7 @@ router.post("/signup", async (req, res) => {
   const { rows: insertedRows } = await db.query(
     `INSERT INTO users (name, email, password_hash, verification_code, verification_expires)
      VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [name, email.toLowerCase(), passwordHash, code, expires]
+    [trimmedName, lowerEmail, passwordHash, code, expires]
   );
   const userId = insertedRows[0].id;
 
@@ -46,7 +56,7 @@ router.post("/signup", async (req, res) => {
   await seedProjectsForUser(userId);
 
   try {
-    await sendVerificationEmail(email.toLowerCase(), name, code);
+    await sendVerificationEmail(lowerEmail, trimmedName, code);
   } catch (err) {
     console.error("Failed to send verification email:", err.message);
   }
@@ -54,7 +64,7 @@ router.post("/signup", async (req, res) => {
   const token = signToken(userId);
   res.status(201).json({
     token,
-    user: { id: userId, name, email: email.toLowerCase(), emailVerified: false },
+    user: { id: userId, name: trimmedName, email: lowerEmail, emailVerified: false },
   });
 });
 
@@ -63,8 +73,11 @@ router.post("/login", async (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: "email and password are required" });
   }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: "Invalid email or password" });
+  }
 
-  const { rows } = await db.query("SELECT * FROM users WHERE email = $1", [email.toLowerCase()]);
+  const { rows } = await db.query("SELECT * FROM users WHERE email = $1", [email.trim().toLowerCase()]);
   const user = rows[0];
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: "Invalid email or password" });
@@ -136,7 +149,9 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/profile", requireAuth, async (req, res) => {
   const { name } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: "name is required" });
+  if (!name || !isValidName(name)) {
+    return res.status(400).json({ error: "Name must be between 1 and 100 characters" });
+  }
 
   await db.query("UPDATE users SET name = $1 WHERE id = $2", [name.trim(), req.userId]);
   const { rows } = await db.query(
@@ -169,17 +184,13 @@ router.put("/notification-prefs", requireAuth, async (req, res) => {
   res.json({ emailNotifications: !!emailNotifications, pushNotifications: !!pushNotifications, weeklyReport: !!weeklyReport });
 });
 
-// Link-based reset: emails a real clickable link instead of a typed code.
-// Chosen over codes specifically because backgrounding the app to copy a
-// code was causing state loss on the user's device — a link opens a normal
-// web page instead, no need to return to the app mid-flow at all.
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: "email is required" });
+  if (!email || !isValidEmail(email)) {
+    return res.json({ sent: true });
   }
 
-  const { rows } = await db.query("SELECT id, name, email FROM users WHERE email = $1", [email.toLowerCase()]);
+  const { rows } = await db.query("SELECT id, name, email FROM users WHERE email = $1", [email.trim().toLowerCase()]);
   const user = rows[0];
 
   if (user) {
@@ -204,15 +215,13 @@ router.post("/forgot-password", async (req, res) => {
   res.json({ sent: true });
 });
 
-// Called by the web reset-password page (see index.js for the page itself),
-// not directly by the mobile app.
 router.post("/reset-password-token", async (req, res) => {
   const { id, token, newPassword } = req.body;
   if (!id || !token || !newPassword) {
     return res.status(400).json({ error: "id, token, and newPassword are required" });
   }
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  if (!isValidPassword(newPassword)) {
+    return res.status(400).json({ error: "Password must be between 8 and 128 characters" });
   }
 
   const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
@@ -243,8 +252,8 @@ router.put("/change-password", requireAuth, async (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: "currentPassword and newPassword are required" });
   }
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: "New password must be at least 8 characters" });
+  if (!isValidPassword(newPassword)) {
+    return res.status(400).json({ error: "New password must be between 8 and 128 characters" });
   }
 
   const { rows } = await db.query("SELECT id, password_hash FROM users WHERE id = $1", [req.userId]);
