@@ -33,10 +33,8 @@ async function init() {
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
-  "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter'",
-  "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_active_until TEXT",
-  "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter'",
-  "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_active_until TEXT",
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_active_until TEXT;
 CREATE TABLE IF NOT EXISTS notification_prefs (
       user_id INTEGER PRIMARY KEY REFERENCES users(id),
       email_notifications INTEGER DEFAULT 1,
