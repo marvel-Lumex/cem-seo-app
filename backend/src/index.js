@@ -1,3 +1,5 @@
+require("./instrument");
+const Sentry = require("@sentry/node");
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -99,9 +101,8 @@ app.get("/reset-password", (req, res) => {
 });
 
 // Where Paystack sends the browser after checkout finishes. The actual
-// account upgrade happens via the webhook above (which is reliable even if
-// the user closes the browser tab too fast) — this page is just a friendly
-// confirmation telling them to go back to the app.
+// account upgrade happens via the webhook above — this page is just a
+// friendly confirmation telling them to go back to the app.
 app.get("/payment-complete", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -129,6 +130,10 @@ app.use("/api/audit", generalLimiter, auditRoutes);
 app.use("/api/keywords", generalLimiter, keywordsRoutes);
 app.use("/api/gsc", generalLimiter, searchConsoleRoutes);
 app.use("/api/billing", generalLimiter, billingRoutes);
+
+// Sentry's error handler must be registered after all routes but before
+// any other error-handling middleware, so it captures the error first.
+Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   console.error(err);
