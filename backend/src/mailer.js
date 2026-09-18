@@ -1,8 +1,7 @@
 // Real email delivery via Resend's HTTP API — not SMTP. This matters
 // specifically because Render's free tier blocks all outbound SMTP traffic
-// (ports 25/465/587) to prevent spam abuse, which is why Gmail SMTP was
-// timing out and crashing requests. Resend sends over regular HTTPS, which
-// isn't blocked, and has a genuinely free tier (3,000 emails/month).
+// (ports 25/465/587) to prevent spam abuse. Resend sends over regular
+// HTTPS, which isn't blocked, and has a genuinely free tier.
 const RESEND_API_URL = "https://api.resend.com/emails";
 
 const isConfigured = !!process.env.RESEND_API_KEY;
@@ -45,9 +44,6 @@ async function sendVerificationEmail(toEmail, name, code) {
   });
 }
 
-// Link-based, not code-based — the reset link opens a real web page to
-// finish the reset, so there's no need to background the app and come back
-// with a typed code (which was causing state loss on the user's device).
 async function sendPasswordResetEmail(toEmail, name, resetLink) {
   return sendEmail({
     to: toEmail,
@@ -57,4 +53,15 @@ async function sendPasswordResetEmail(toEmail, name, resetLink) {
   });
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, isConfigured };
+// Sent to the NEW email address the user wants to switch to — confirms they
+// actually own/control it before we make the swap.
+async function sendEmailChangeVerification(toEmail, name, code) {
+  return sendEmail({
+    to: toEmail,
+    subject: "Confirm your new Cem SEO email",
+    text: `Hi ${name},\n\nYou asked to change the email on your Cem SEO account to this address. Use this code to confirm:\n\n${code}\n\nThis code expires in 15 minutes. If you didn't request this, you can safely ignore this email — your account email won't change.`,
+    html: `<p>Hi ${name},</p><p>You asked to change the email on your Cem SEO account to this address. Use this code to confirm:</p><h2 style="letter-spacing:4px;">${code}</h2><p>This code expires in 15 minutes. If you didn't request this, you can safely ignore this email — your account email won't change.</p>`,
+  });
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification, isConfigured };

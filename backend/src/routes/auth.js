@@ -5,7 +5,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const { seedProjectsForUser } = require("../db/seed");
 const { requireAuth } = require("../middleware/auth");
-const { sendVerificationEmail, sendPasswordResetEmail } = require("../mailer");
+const { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification } = require("../mailer");
 const { isValidEmail, isValidName, isValidPassword } = require("../utils/validate");
 
 const router = express.Router();
@@ -161,6 +161,88 @@ router.put("/profile", requireAuth, async (req, res) => {
   const user = rows[0];
   res.json({
     user: { id: user.id, name: user.name, email: user.email, emailVerified: !!user.email_verified },
+  });
+});
+
+// Starts an email change — sends a verification code to the NEW address to
+// confirm the user actually controls it before the swap is made.
+router.post("/request-email-change", requireAuth, async (req, res) => {
+  const { newEmail } = req.body;
+  if (!newEmail || !isValidEmail(newEmail)) {
+    return res.status(400).json({ error: "Please enter a valid email address" });
+  }
+
+  const lowerNewEmail = newEmail.trim().toLowerCase();
+
+  const { rows: currentRows } = await db.query("SELECT id, name, email FROM users WHERE id = $1", [req.userId]);
+  const currentUser = currentRows[0];
+  if (!currentUser) return res.status(404).json({ error: "User not found" });
+
+  if (lowerNewEmail === currentUser.email) {
+    return res.status(400).json({ error: "That's already your current email" });
+  }
+
+  const { rows: existingRows } = await db.query("SELECT id FROM users WHERE email = $1", [lowerNewEmail]);
+  if (existingRows[0]) {
+    return res.status(409).json({ error: "That email is already in use by another account" });
+  }
+
+  const code = generateCode();
+  const expires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  await db.query(
+    "UPDATE users SET pending_email = $1, email_change_code = $2, email_change_expires = $3 WHERE id = $4",
+    [lowerNewEmail, code, expires, req.userId]
+  );
+
+  try {
+    await sendEmailChangeVerification(lowerNewEmail, currentUser.name, code);
+  } catch (err) {
+    console.error("Failed to send email change verification:", err.message);
+    return res.status(502).json({ error: "Couldn't send the verification email right now. Try again shortly." });
+  }
+
+  res.json({ sent: true });
+});
+
+router.post("/confirm-email-change", requireAuth, async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: "code is required" });
+
+  const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [req.userId]);
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  if (!user.pending_email || !user.email_change_code) {
+    return res.status(400).json({ error: "No email change is pending. Start over from Profile." });
+  }
+  if (user.email_change_code !== code) {
+    return res.status(400).json({ error: "Incorrect code" });
+  }
+  if (new Date(user.email_change_expires) < new Date()) {
+    return res.status(400).json({ error: "Code expired — request a new one from Profile" });
+  }
+
+  const { rows: existingRows } = await db.query("SELECT id FROM users WHERE email = $1 AND id != $2", [
+    user.pending_email,
+    user.id,
+  ]);
+  if (existingRows[0]) {
+    return res.status(409).json({ error: "That email was just taken by another account. Try a different one." });
+  }
+
+  await db.query(
+    "UPDATE users SET email = $1, pending_email = NULL, email_change_code = NULL, email_change_expires = NULL WHERE id = $2",
+    [user.pending_email, user.id]
+  );
+
+  const { rows: updatedRows } = await db.query(
+    "SELECT id, name, email, email_verified FROM users WHERE id = $1",
+    [user.id]
+  );
+  const updated = updatedRows[0];
+  res.json({
+    user: { id: updated.id, name: updated.name, email: updated.email, emailVerified: !!updated.email_verified },
   });
 });
 
