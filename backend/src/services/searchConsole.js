@@ -123,10 +123,6 @@ async function querySearchAnalytics(project) {
   };
 }
 
-// Pulls per-query performance data (not just the site-wide totals used on
-// Home) — this is what powers Click Opportunities and Quick Wins, since
-// both need to see how individual search terms are performing, not just
-// the overall site numbers.
 async function queryTopQueries(project, days = 28) {
   const accessToken = await getValidAccessToken(project);
   const endDate = new Date();
@@ -158,6 +154,73 @@ async function queryTopQueries(project, days = 28) {
   }));
 }
 
+// Compares this period to the previous one — the same "trending up/down"
+// pattern Google's own Search Console Insights report uses: queries with
+// real, meaningful momentum changes, not just a snapshot of where things
+// stand right now.
+async function queryTrendingQueries(project, days = 28) {
+  const accessToken = await getValidAccessToken(project);
+
+  async function fetchPeriod(startDate, endDate) {
+    const res = await fetch(
+      `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(project.gsc_site_url)}/searchAnalytics/query`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: startDate.toISOString().slice(0, 10),
+          endDate: endDate.toISOString().slice(0, 10),
+          dimensions: ["query"],
+          rowLimit: 250,
+        }),
+      }
+    );
+    if (!res.ok) throw new Error(`Search Analytics query failed: ${await res.text()}`);
+    const data = await res.json();
+    const map = new Map();
+    for (const row of data.rows || []) {
+      map.set(row.keys[0], Math.round(row.clicks));
+    }
+    return map;
+  }
+
+  const currentEnd = new Date();
+  const currentStart = new Date();
+  currentStart.setDate(currentStart.getDate() - days);
+
+  const previousEnd = new Date(currentStart);
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(previousStart.getDate() - days);
+
+  const [currentClicks, previousClicks] = await Promise.all([
+    fetchPeriod(currentStart, currentEnd),
+    fetchPeriod(previousStart, previousEnd),
+  ]);
+
+  const allQueries = new Set([...currentClicks.keys(), ...previousClicks.keys()]);
+  const changes = [];
+  for (const query of allQueries) {
+    const current = currentClicks.get(query) || 0;
+    const previous = previousClicks.get(query) || 0;
+    const delta = current - previous;
+    if (delta !== 0) {
+      changes.push({ query, currentClicks: current, previousClicks: previous, delta });
+    }
+  }
+
+  const trendingUp = changes
+    .filter((c) => c.delta > 0)
+    .sort((a, b) => b.delta - a.delta)
+    .slice(0, 10);
+
+  const trendingDown = changes
+    .filter((c) => c.delta < 0)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, 10);
+
+  return { trendingUp, trendingDown };
+}
+
 module.exports = {
   isConfigured,
   buildAuthUrl,
@@ -167,4 +230,5 @@ module.exports = {
   listSites,
   querySearchAnalytics,
   queryTopQueries,
+  queryTrendingQueries,
 };
