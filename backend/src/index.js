@@ -14,6 +14,7 @@ const auditRoutes = require("./routes/audit");
 const keywordsRoutes = require("./routes/keywords");
 const searchConsoleRoutes = require("./routes/searchConsole");
 const billingRoutes = require("./routes/billing");
+const opportunitiesRoutes = require("./routes/opportunities");
 
 const app = express();
 
@@ -130,6 +131,7 @@ app.use("/api/audit", generalLimiter, auditRoutes);
 app.use("/api/keywords", generalLimiter, keywordsRoutes);
 app.use("/api/gsc", generalLimiter, searchConsoleRoutes);
 app.use("/api/billing", generalLimiter, billingRoutes);
+app.use("/api/opportunities", generalLimiter, opportunitiesRoutes);
 
 // Sentry's error handler must be registered after all routes but before
 // any other error-handling middleware, so it captures the error first.

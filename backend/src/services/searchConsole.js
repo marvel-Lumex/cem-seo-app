@@ -13,12 +13,6 @@ function getRedirectUri() {
   return process.env.GOOGLE_OAUTH_REDIRECT_URI || "http://localhost:4000/api/gsc/callback";
 }
 
-// The "state" param round-trips through Google's OAuth flow unmodified, so
-// we use it to remember which user/project this connection is for when the
-// browser redirect lands back on our /callback route (which has no auth
-// header of its own). Base64-encoded JSON — not cryptographically signed,
-// which is a reasonable simplification for now but worth hardening
-// (e.g. HMAC-signing the state) before real public launch.
 function encodeState(userId, projectId) {
   return Buffer.from(JSON.stringify({ userId, projectId, nonce: Date.now() })).toString("base64url");
 }
@@ -57,7 +51,7 @@ async function exchangeCodeForTokens(code) {
     }),
   });
   if (!res.ok) throw new Error(`Token exchange failed: ${await res.text()}`);
-  return res.json(); // { access_token, refresh_token, expires_in, ... }
+  return res.json();
 }
 
 async function refreshAccessToken(refreshToken) {
@@ -72,11 +66,9 @@ async function refreshAccessToken(refreshToken) {
     }),
   });
   if (!res.ok) throw new Error(`Token refresh failed: ${await res.text()}`);
-  return res.json(); // { access_token, expires_in, ... }
+  return res.json();
 }
 
-// Returns a valid access token for this project's GSC connection, refreshing
-// it first if it's expired.
 async function getValidAccessToken(project) {
   const expiresAt = project.gsc_token_expires ? new Date(project.gsc_token_expires) : null;
   const stillValid = expiresAt && expiresAt.getTime() - Date.now() > 60_000;
@@ -131,6 +123,41 @@ async function querySearchAnalytics(project) {
   };
 }
 
+// Pulls per-query performance data (not just the site-wide totals used on
+// Home) — this is what powers Click Opportunities and Quick Wins, since
+// both need to see how individual search terms are performing, not just
+// the overall site numbers.
+async function queryTopQueries(project, days = 28) {
+  const accessToken = await getValidAccessToken(project);
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  const res = await fetch(
+    `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(project.gsc_site_url)}/searchAnalytics/query`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startDate: startDate.toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+        dimensions: ["query"],
+        rowLimit: 250,
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`Search Analytics query failed: ${await res.text()}`);
+  const data = await res.json();
+
+  return (data.rows || []).map((row) => ({
+    query: row.keys[0],
+    clicks: Math.round(row.clicks),
+    impressions: Math.round(row.impressions),
+    ctr: row.ctr,
+    position: Number(row.position.toFixed(1)),
+  }));
+}
+
 module.exports = {
   isConfigured,
   buildAuthUrl,
@@ -139,4 +166,5 @@ module.exports = {
   getValidAccessToken,
   listSites,
   querySearchAnalytics,
+  queryTopQueries,
 };
