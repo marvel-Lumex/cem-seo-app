@@ -40,9 +40,6 @@ router.get("/", requireAuth, async (req, res) => {
   });
 });
 
-// Runs a real audit against the project's domain using Google's PageSpeed
-// Insights API (Lighthouse under the hood). This is a live network call to
-// Google and can take 10-30+ seconds depending on the site.
 router.post("/run", requireAuth, async (req, res) => {
   const project = await getActiveProject(req.userId);
   if (!project) return res.status(404).json({ error: "No project found" });
@@ -83,7 +80,6 @@ router.post("/run", requireAuth, async (req, res) => {
     project.id,
   ]);
 
-  // Fire-and-forget — don't make the user wait on an email send to see their results
   checkAndSendAuditAlert(req.userId, project, { healthScore, criticalIssues }, previousAudit);
 
   res.status(201).json({
@@ -103,11 +99,20 @@ router.get("/history", requireAuth, async (req, res) => {
   if (!project) return res.json([]);
 
   const { rows } = await db.query(
-    `SELECT health_score AS "healthScore", run_at AS "runAt" FROM audits WHERE project_id = $1 ORDER BY run_at ASC LIMIT 30`,
+    `SELECT health_score AS "healthScore", category_scores_json, run_at AS "runAt" FROM audits WHERE project_id = $1 ORDER BY run_at ASC LIMIT 30`,
     [project.id]
   );
 
-  res.json(rows);
+  // Real per-category history (Performance/Accessibility/Best Practices/SEO
+  // over time) — this is what powers the SEO Health screen's trend lines,
+  // distinct from just the single overall score shown on the Audit tab.
+  const withCategories = rows.map((r) => ({
+    healthScore: r.healthScore,
+    runAt: r.runAt,
+    categoryScores: parseJsonColumn(r.category_scores_json),
+  }));
+
+  res.json(withCategories);
 });
 
 module.exports = router;

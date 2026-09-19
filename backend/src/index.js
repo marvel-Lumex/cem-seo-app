@@ -16,6 +16,7 @@ const searchConsoleRoutes = require("./routes/searchConsole");
 const billingRoutes = require("./routes/billing");
 const opportunitiesRoutes = require("./routes/opportunities");
 const growthRoutes = require("./routes/growth");
+const searchPerformanceRoutes = require("./routes/searchPerformance");
 
 const app = express();
 
@@ -126,6 +127,7 @@ app.use("/api/gsc", generalLimiter, searchConsoleRoutes);
 app.use("/api/billing", generalLimiter, billingRoutes);
 app.use("/api/opportunities", generalLimiter, opportunitiesRoutes);
 app.use("/api/growth", generalLimiter, growthRoutes);
+app.use("/api/search-performance", generalLimiter, searchPerformanceRoutes);
 
 Sentry.setupExpressErrorHandler(app);
 
