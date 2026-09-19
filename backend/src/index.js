@@ -15,23 +15,19 @@ const keywordsRoutes = require("./routes/keywords");
 const searchConsoleRoutes = require("./routes/searchConsole");
 const billingRoutes = require("./routes/billing");
 const opportunitiesRoutes = require("./routes/opportunities");
+const growthRoutes = require("./routes/growth");
 
 const app = express();
 
-app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled since some pages here use inline <script>
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 
-// IMPORTANT: the Paystack webhook needs the raw, unparsed request body for
-// its signature check, so it's registered here — before the global
-// express.json() below would otherwise consume and parse that body first.
 app.use("/api/billing/webhook", paystackWebhook);
 
 app.use(express.json({ limit: "100kb" }));
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// Serves the actual password-reset web page — this is what the email
-// link opens. Plain HTML/CSS/JS, no framework needed.
 app.get("/reset-password", (req, res) => {
   const { token, id } = req.query;
   if (!token || !id) {
@@ -101,9 +97,6 @@ app.get("/reset-password", (req, res) => {
 </html>`);
 });
 
-// Where Paystack sends the browser after checkout finishes. The actual
-// account upgrade happens via the webhook above — this page is just a
-// friendly confirmation telling them to go back to the app.
 app.get("/payment-complete", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -132,9 +125,8 @@ app.use("/api/keywords", generalLimiter, keywordsRoutes);
 app.use("/api/gsc", generalLimiter, searchConsoleRoutes);
 app.use("/api/billing", generalLimiter, billingRoutes);
 app.use("/api/opportunities", generalLimiter, opportunitiesRoutes);
+app.use("/api/growth", generalLimiter, growthRoutes);
 
-// Sentry's error handler must be registered after all routes but before
-// any other error-handling middleware, so it captures the error first.
 Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
