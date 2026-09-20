@@ -3,6 +3,7 @@ const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { getActiveProject } = require("../services/activeProject");
 const { getKeywordTrends } = require("../services/trends");
+const { classifyIntent } = require("../utils/searchIntent");
 
 const router = express.Router();
 
@@ -13,7 +14,6 @@ router.get("/", requireAuth, async (req, res) => {
 
   let rows;
   if (q) {
-    // ILIKE (not LIKE) for case-insensitive matching in Postgres
     ({ rows } = await db.query(
       "SELECT keyword, volume, difficulty FROM keywords WHERE project_id = $1 AND keyword ILIKE $2 ORDER BY id",
       [project.id, `%${q}%`]
@@ -25,13 +25,13 @@ router.get("/", requireAuth, async (req, res) => {
     ));
   }
 
-  res.json(rows);
+  // Real, explainable pattern-based intent classification — added here so
+  // every consumer of this endpoint gets it automatically, no separate call.
+  const withIntent = rows.map((r) => ({ ...r, intent: classifyIntent(r.keyword) }));
+
+  res.json(withIntent);
 });
 
-// Real Google Trends data (free, no API key) for a given keyword — search
-// interest over time plus real related/rising search terms as fresh keyword
-// ideas. This is genuine data, unlike the seeded volume/difficulty numbers
-// above, which need a paid provider to become real (see README).
 router.get("/trends", requireAuth, async (req, res) => {
   const keyword = (req.query.keyword || "").toString().trim();
   if (!keyword) return res.status(400).json({ error: "keyword query param is required" });
