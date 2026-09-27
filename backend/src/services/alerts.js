@@ -1,19 +1,11 @@
 const db = require("../db");
-const nodemailer = require("nodemailer");
+const { sendEmail } = require("../mailer");
 
-// Reuses the same SMTP transporter setup as verification emails.
-// Kept separate from mailer.js's single-purpose function so alert emails
-// can have their own subject/body without overloading sendVerificationEmail.
-const isConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-let transporter = null;
-if (isConfigured) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
-}
+// Now uses the same Resend-based email system as everything else (was
+// previously using its own separate, dead Gmail SMTP setup — which never
+// actually worked once the backend moved to Render, since Render blocks
+// outbound SMTP. Score-drop alert emails were silently failing this whole
+// time as a result).
 
 const SCORE_DROP_THRESHOLD = 10;
 
@@ -21,18 +13,7 @@ async function sendAlertEmail(toEmail, name, subject, bodyLines) {
   const text = `Hi ${name},\n\n${bodyLines.join("\n")}\n\n— Cem SEO`;
   const html = `<p>Hi ${name},</p><p>${bodyLines.join("<br/>")}</p><p>— Cem SEO</p>`;
 
-  if (!transporter) {
-    console.log(`\n📧 [DEV MODE — no SMTP configured] Alert for ${toEmail}: ${subject}\n${text}\n`);
-    return;
-  }
-
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || `"Cem SEO" <${process.env.SMTP_USER}>`,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
+  await sendEmail({ to: toEmail, subject, text, html });
 }
 
 // Compares a freshly-completed audit against the one before it, and emails

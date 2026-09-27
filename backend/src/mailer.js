@@ -53,8 +53,6 @@ async function sendPasswordResetEmail(toEmail, name, resetLink) {
   });
 }
 
-// Sent to the NEW email address the user wants to switch to — confirms they
-// actually own/control it before we make the swap.
 async function sendEmailChangeVerification(toEmail, name, code) {
   return sendEmail({
     to: toEmail,
@@ -64,4 +62,4 @@ async function sendEmailChangeVerification(toEmail, name, code) {
   });
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification, isConfigured };
+module.exports = { sendEmail, sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification, isConfigured };
