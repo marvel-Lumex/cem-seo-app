@@ -21,6 +21,8 @@ const adminRoutes = require("./routes/admin");
 
 const app = express();
 
+app.set("trust proxy", 1); // Render sits behind a proxy; this tells Express to trust its X-Forwarded-For header for accurate rate limiting
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 
