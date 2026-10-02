@@ -17,6 +17,7 @@ const billingRoutes = require("./routes/billing");
 const opportunitiesRoutes = require("./routes/opportunities");
 const growthRoutes = require("./routes/growth");
 const searchPerformanceRoutes = require("./routes/searchPerformance");
+const adminRoutes = require("./routes/admin");
 
 const app = express();
 
@@ -117,6 +118,8 @@ app.get("/payment-complete", (req, res) => {
 </body>
 </html>`);
 });
+
+app.use("/admin", adminRoutes);
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/dashboard", generalLimiter, dashboardRoutes);

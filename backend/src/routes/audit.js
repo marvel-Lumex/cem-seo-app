@@ -4,6 +4,7 @@ const { requireAuth } = require("../middleware/auth");
 const { runPageSpeedAudit } = require("../services/pagespeed");
 const { getActiveProject } = require("../services/activeProject");
 const { checkAndSendAuditAlert } = require("../services/alerts");
+const { checkTechnicalSeo } = require("../services/technicalSeo");
 
 const router = express.Router();
 
@@ -36,6 +37,7 @@ router.get("/", requireAuth, async (req, res) => {
     passedChecks: audit.passed_checks,
     topIssues: parseJsonColumn(audit.top_issues_json) || [],
     categoryScores: parseJsonColumn(audit.category_scores_json) || null,
+    technicalSeo: parseJsonColumn(audit.technical_seo_json) || null,
     runAt: audit.run_at,
   });
 });
@@ -57,11 +59,20 @@ router.post("/run", requireAuth, async (req, res) => {
     return res.status(502).json({ error: err.message || "Audit failed" });
   }
 
+  // Real sitemap.xml/robots.txt check — wrapped so a failure here never
+  // breaks the rest of the audit, which already has real value on its own.
+  let technicalSeo = null;
+  try {
+    technicalSeo = await checkTechnicalSeo(project.domain);
+  } catch (err) {
+    console.error("Technical SEO check failed:", err.message);
+  }
+
   const { healthScore, criticalIssues, warnings, notices, passedChecks, topIssues, categoryScores } = result;
 
   await db.query(
-    `INSERT INTO audits (project_id, health_score, critical_issues, warnings, notices, passed_checks, top_issues_json, category_scores_json)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    `INSERT INTO audits (project_id, health_score, critical_issues, warnings, notices, passed_checks, top_issues_json, category_scores_json, technical_seo_json)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       project.id,
       healthScore,
@@ -71,6 +82,7 @@ router.post("/run", requireAuth, async (req, res) => {
       passedChecks,
       JSON.stringify(topIssues),
       JSON.stringify(categoryScores),
+      JSON.stringify(technicalSeo),
     ]
   );
 
@@ -90,6 +102,7 @@ router.post("/run", requireAuth, async (req, res) => {
     passedChecks,
     topIssues,
     categoryScores,
+    technicalSeo,
     runAt: new Date().toISOString(),
   });
 });
@@ -103,9 +116,6 @@ router.get("/history", requireAuth, async (req, res) => {
     [project.id]
   );
 
-  // Real per-category history (Performance/Accessibility/Best Practices/SEO
-  // over time) — this is what powers the SEO Health screen's trend lines,
-  // distinct from just the single overall score shown on the Audit tab.
   const withCategories = rows.map((r) => ({
     healthScore: r.healthScore,
     runAt: r.runAt,

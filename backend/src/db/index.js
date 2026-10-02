@@ -35,6 +35,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'starter';
   ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_active_until TEXT;
+  ALTER TABLE audits ADD COLUMN IF NOT EXISTS technical_seo_json TEXT;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_code TEXT;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_expires TEXT;
