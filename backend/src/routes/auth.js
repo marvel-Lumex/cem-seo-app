@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../db");
-const { seedProjectsForUser } = require("../db/seed");
 const { requireAuth } = require("../middleware/auth");
 const { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification } = require("../mailer");
 const { isValidEmail, isValidName, isValidPassword } = require("../utils/validate");
@@ -53,7 +52,11 @@ router.post("/signup", async (req, res) => {
   const userId = insertedRows[0].id;
 
   await db.query("INSERT INTO notification_prefs (user_id) VALUES ($1)", [userId]);
-  await seedProjectsForUser(userId);
+
+  // Deliberately NOT seeding fake demo projects (novabrands.io, driftly.co,
+  // etc.) anymore — new accounts start genuinely empty. Mixing fake seeded
+  // data with real data was confusing and undermined trust in real results.
+  // Users add their own real site via Projects → "+".
 
   try {
     await sendVerificationEmail(lowerEmail, trimmedName, code);
@@ -164,8 +167,6 @@ router.put("/profile", requireAuth, async (req, res) => {
   });
 });
 
-// Starts an email change — sends a verification code to the NEW address to
-// confirm the user actually controls it before the swap is made.
 router.post("/request-email-change", requireAuth, async (req, res) => {
   const { newEmail } = req.body;
   if (!newEmail || !isValidEmail(newEmail)) {
