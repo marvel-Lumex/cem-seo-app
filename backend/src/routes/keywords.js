@@ -54,6 +54,7 @@ router.get("/local", requireAuth, async (req, res) => {
     const regions = await getInterestByRegion(keyword, country);
     res.json({ keyword, country: country || "Worldwide", regions });
   } catch (err) {
+    console.error("Local SEO fetch failed:", err.message);
     res.status(502).json({ error: "Couldn't fetch local search data right now. Try again shortly." });
   }
 });
