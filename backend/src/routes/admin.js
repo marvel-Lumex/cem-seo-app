@@ -3,10 +3,6 @@ const db = require("../db");
 
 const router = express.Router();
 
-// Simple admin dashboard — protected by a secret key in the URL, not a full
-// login system (fine for a solo founder checking in occasionally; revisit
-// if more than one person ever needs admin access). Shows real counts
-// queried directly from the database, no fabricated numbers.
 router.get("/", async (req, res) => {
   const key = req.query.key;
   if (!process.env.ADMIN_SECRET || key !== process.env.ADMIN_SECRET) {
@@ -25,6 +21,25 @@ router.get("/", async (req, res) => {
     const { rows: projectCountRows } = await db.query("SELECT COUNT(*) AS count FROM projects");
     const { rows: auditCountRows } = await db.query("SELECT COUNT(*) AS count FROM audits");
 
+    // Real recent activity — actual audits being run, by whom, on which
+    // site, and their score — this is what "monitoring subscriber
+    // activity" actually means, not just aggregate counts.
+    const { rows: recentAudits } = await db.query(
+      `SELECT u.name, u.email, p.domain, a.health_score, a.run_at
+       FROM audits a
+       JOIN projects p ON p.id = a.project_id
+       JOIN users u ON u.id = p.user_id
+       ORDER BY a.run_at DESC LIMIT 15`
+    );
+
+    const { rows: gscConnections } = await db.query(
+      `SELECT u.name, u.email, p.domain, p.gsc_site_url
+       FROM projects p
+       JOIN users u ON u.id = p.user_id
+       WHERE p.gsc_refresh_token IS NOT NULL
+       ORDER BY p.id DESC LIMIT 10`
+    );
+
     const planPrices = { growth: 15000, agency: 50000 };
     let estimatedMonthlyRevenue = 0;
     const planBreakdown = planRows.map((r) => {
@@ -41,7 +56,7 @@ router.get("/", async (req, res) => {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cem SEO — Admin</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; background: #0B0C14; color: #E3E1D6; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; background: #0B0C14; color: #E3E1D6; }
   h1 { font-size: 22px; }
   h2 { font-size: 15px; color: #94989F; margin-top: 32px; margin-bottom: 8px; }
   .stat-grid { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -51,6 +66,10 @@ router.get("/", async (req, res) => {
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   th, td { text-align: left; padding: 8px; border-bottom: 1px solid #292C38; font-size: 13px; }
   th { color: #94989F; font-weight: 600; }
+  .score-good { color: #5ED68C; }
+  .score-mid { color: #F0B259; }
+  .score-bad { color: #F06666; }
+  .refresh-note { color: #94989F; font-size: 11px; margin-top: 24px; }
 </style>
 </head>
 <body>
@@ -70,11 +89,28 @@ router.get("/", async (req, res) => {
   </div>
   <p style="color:#94989F;font-size:12px;margin-top:8px;">Estimated monthly revenue: ₦${estimatedMonthlyRevenue.toLocaleString()} (based on current active plans — not a Paystack-verified figure)</p>
 
+  <h2>Recent audit activity (real usage)</h2>
+  <table>
+    <tr><th>User</th><th>Site</th><th>Score</th><th>When</th></tr>
+    ${recentAudits.length > 0 ? recentAudits.map((a) => {
+      const scoreClass = a.health_score >= 80 ? "score-good" : a.health_score >= 50 ? "score-mid" : "score-bad";
+      return `<tr><td>${a.name}</td><td>${a.domain}</td><td class="${scoreClass}">${a.health_score}</td><td>${new Date(a.run_at).toLocaleString()}</td></tr>`;
+    }).join("") : '<tr><td colspan="4" style="color:#94989F;">No audits run yet.</td></tr>'}
+  </table>
+
+  <h2>Search Console connections</h2>
+  <table>
+    <tr><th>User</th><th>Site</th><th>Connected property</th></tr>
+    ${gscConnections.length > 0 ? gscConnections.map((g) => `<tr><td>${g.name}</td><td>${g.domain}</td><td>${g.gsc_site_url}</td></tr>`).join("") : '<tr><td colspan="3" style="color:#94989F;">No one has connected Search Console yet.</td></tr>'}
+  </table>
+
   <h2>Recent signups</h2>
   <table>
     <tr><th>Name</th><th>Email</th><th>Joined</th></tr>
     ${recentSignups.map((u) => `<tr><td>${u.name}</td><td>${u.email}</td><td>${new Date(u.created_at).toLocaleDateString()}</td></tr>`).join("")}
   </table>
+
+  <p class="refresh-note">Refresh this page to see the latest activity — no auto-refresh.</p>
 </body>
 </html>`);
   } catch (err) {
