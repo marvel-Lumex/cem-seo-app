@@ -5,20 +5,23 @@ const crypto = require("crypto");
 
 const PAYSTACK_API = "https://api.paystack.co";
 
-// Plan prices in kobo (Paystack's smallest currency unit — 1 NGN = 100 kobo),
-// matching the Starter/Growth/Agency tiers already shown in the Billing screen.
-// Adjust these numbers anytime — they're the only place pricing is defined.
+// Plan prices in kobo (1 NGN = 100 kobo). Website prices.
+// Features list ONLY what the server actually enforces (see planLimits.js).
 const PLANS = {
-  starter: { name: "Starter", priceKobo: 0, features: ["1 project", "Weekly audits", "Basic keyword search"] },
+  starter: {
+    name: "Starter",
+    priceKobo: 0,
+    features: ["1 site", "1 audit per site per week", "Basic keyword search"],
+  },
   growth: {
     name: "Growth",
-    priceKobo: 1500000, // ₦15,000/month
-    features: ["5 projects", "Daily audits", "Full keyword research", "Email support"],
+    priceKobo: 2500000, // ₦25,000 per 30 days
+    features: ["Up to 5 sites", "1 audit per site per day", "Full keyword research", "Email support"],
   },
   agency: {
     name: "Agency",
-    priceKobo: 5000000, // ₦50,000/month
-    features: ["Unlimited projects", "Real-time audits", "Priority support", "White-label reports"],
+    priceKobo: 5500000, // ₦55,000 per 30 days
+    features: ["Unlimited sites", "Unlimited audits", "Full keyword research", "Priority support"],
   },
 };
 
@@ -62,10 +65,8 @@ async function initializeTransaction({ email, planId, userId, callbackUrl }) {
   return { authorizationUrl: data.data.authorization_url, reference: data.data.reference };
 }
 
-// Verifies that a webhook request genuinely came from Paystack, not an
-// attacker pretending to send a "payment succeeded" event. Paystack signs
-// every webhook with your secret key — this recomputes that signature and
-// compares it to the one they sent.
+// Verifies that a webhook request genuinely came from Paystack. Paystack signs
+// every webhook with your secret key — this recomputes and compares.
 function verifyWebhookSignature(rawBody, signatureHeader) {
   const hash = crypto
     .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)

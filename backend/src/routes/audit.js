@@ -5,6 +5,7 @@ const { runPageSpeedAudit } = require("../services/pagespeed");
 const { getActiveProject } = require("../services/activeProject");
 const { checkAndSendAuditAlert } = require("../services/alerts");
 const { checkTechnicalSeo } = require("../services/technicalSeo");
+const { getUserLimits } = require("../services/planLimits");
 
 const router = express.Router();
 
@@ -51,6 +52,18 @@ router.post("/run", requireAuth, async (req, res) => {
     [project.id]
   );
   const previousAudit = previousRows[0];
+
+  const limits = await getUserLimits(req.userId);
+  if (previousAudit && limits.auditIntervalHours > 0) {
+    const nextAllowed = new Date(previousAudit.run_at).getTime() + limits.auditIntervalHours * 3600000;
+    if (nextAllowed > Date.now()) {
+      const hrs = Math.ceil((nextAllowed - Date.now()) / 3600000);
+      const when = hrs >= 48 ? `${Math.ceil(hrs / 24)} days` : `${hrs} hour${hrs === 1 ? "" : "s"}`;
+      return res.status(403).json({
+        error: `Your plan allows 1 audit per site every ${limits.auditIntervalHours >= 168 ? "week" : "day"}. You can run the next one in about ${when}.`,
+      });
+    }
+  }
 
   let result;
   try {

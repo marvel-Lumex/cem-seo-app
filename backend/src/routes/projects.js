@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
+const { getUserLimits } = require("../services/planLimits");
 
 const router = express.Router();
 
@@ -26,6 +27,16 @@ router.post("/", requireAuth, async (req, res) => {
     [req.userId, domain.trim()]
   );
   if (existingRows[0]) return res.status(409).json({ error: "You're already tracking this domain" });
+
+  const limits = await getUserLimits(req.userId);
+  if (limits.maxSites !== null) {
+    const { rows: countRows } = await db.query("SELECT COUNT(*)::int AS n FROM projects WHERE user_id = $1", [req.userId]);
+    if (countRows[0].n >= limits.maxSites) {
+      return res.status(403).json({
+        error: `Your plan allows up to ${limits.maxSites} site${limits.maxSites === 1 ? "" : "s"}. Remove one to add another.`,
+      });
+    }
+  }
 
   const { rows } = await db.query(
     "INSERT INTO projects (user_id, domain, status, seo_score) VALUES ($1, $2, 'Active', 0) RETURNING id",
