@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Subscribe — Cem SEO</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1a1a1a; }
+  .logo { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg, #676AF6, #517EEE); color: #fff; font-size: 26px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; }
+  h1 { font-size: 24px; text-align: center; margin: 0 0 4px; }
+  .sub { text-align: center; color: #666; font-size: 14px; margin-bottom: 24px; }
+  input { width: 100%; box-sizing: border-box; padding: 12px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 10px; font-size: 15px; }
+  button { width: 100%; padding: 14px; border: 0; border-radius: 12px; font-size: 15px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #676AF6, #517EEE); cursor: pointer; }
+  button:disabled { opacity: .6; }
+  .plan { border: 1px solid #e3e3ea; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .plan h2 { margin: 0; font-size: 18px; }
+  .price { color: #676AF6; font-weight: 700; margin: 2px 0 8px; }
+  .plan ul { margin: 0 0 12px; padding-left: 18px; font-size: 14px; color: #333; }
+  .err { color: #c0392b; font-size: 14px; min-height: 20px; margin-bottom: 8px; }
+  .note { background: #f7f7f9; border-radius: 12px; padding: 12px 16px; font-size: 13px; color: #555; margin-top: 18px; }
+  .hidden { display: none; }
+  a { color: #676AF6; }
+  .small { font-size: 13px; color: #666; text-align: center; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="logo">C</div>
+<h1>Cem SEO plans</h1>
+<p class="sub">Sign in with your Cem SEO account to upgrade.</p>
+
+<div id="login">
+  <input id="email" type="email" placeholder="Email" autocomplete="email">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <div class="err" id="loginErr"></div>
+  <button id="loginBtn">Sign in</button>
+  <p class="small">Signed up with Google? Use the password you set in the app, or reset it with “Forgot password” in the app.</p>
+</div>
+
+<div id="plans" class="hidden">
+  <p class="sub" id="who"></p>
+  <div id="planList"></div>
+  <div class="err" id="planErr"></div>
+  <div class="note">
+    Payments are processed securely by Paystack. Each payment is a <strong>one-time charge that unlocks the plan for 30 days</strong>. It does not renew automatically — you can pay again whenever you want to continue. New accounts include a 14-day trial of Growth.
+  </div>
+</div>
+
+<p class="small"><a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a> · contact@lumexalliance.com</p>
+
+<script>
+const API = "https://cem-seo-backend.onrender.com";
+let token = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function call(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Something went wrong. Please try again.");
+  return data;
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginErr").textContent = "";
+  $("loginBtn").disabled = true;
+  try {
+    const r = await call("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: $("email").value.trim(), password: $("password").value }),
+    });
+    token = r.token;
+    $("who").textContent = "Signed in as " + r.user.email;
+    const p = await call("/api/billing/plans");
+    $("planList").innerHTML = p.plans.map((pl) => `
+      <div class="plan">
+        <h2>${esc(pl.name)}</h2>
+        <div class="price">${pl.priceNaira === 0 ? "Free" : "₦" + pl.priceNaira.toLocaleString() + " / 30 days"}</div>
+        <ul>${pl.features.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+        ${pl.priceNaira === 0 ? "" : `<button data-plan="${esc(pl.id)}">Pay ₦${pl.priceNaira.toLocaleString()} for 30 days</button>`}
+      </div>`).join("");
+    $("login").classList.add("hidden");
+    $("plans").classList.remove("hidden");
+  } catch (e) {
+    $("loginErr").textContent = e.message;
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+};
+
+$("planList").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-plan]");
+  if (!btn) return;
+  $("planErr").textContent = "";
+  btn.disabled = true;
+  btn.textContent = "Opening secure checkout…";
+  try {
+    const r = await call("/api/billing/initialize", { method: "POST", body: JSON.stringify({ planId: btn.dataset.plan }) });
+    window.location.href = r.authorizationUrl;
+  } catch (e) {
+    $("planErr").textContent = e.message;
+    btn.disabled = false;
+    btn.textContent = "Try again";
+  }
+});
+</script>
+</body>
+</html>
