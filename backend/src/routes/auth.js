@@ -9,6 +9,20 @@ const { isValidEmail, isValidName, isValidPassword } = require("../utils/validat
 
 const router = express.Router();
 
+// Link-based verification: stateless signed link so people on a single phone
+// can verify by tapping the email button instead of copying a code between apps.
+function verifySignature(userId, code) {
+  return crypto.createHmac("sha256", process.env.JWT_SECRET || "dev-secret").update(`verify:${userId}:${code}`).digest("hex");
+}
+function verifyLinkFor(userId, code) {
+  const base = process.env.APP_URL || "https://cem-seo-backend.onrender.com";
+  return `${base}/api/auth/verify-link?u=${userId}&s=${verifySignature(userId, code)}`;
+}
+function verifyPage(title, message) {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title} — Cem SEO</title><style>body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:400px;margin:80px auto;padding:0 20px;background:#0B0C14;color:#E3E1D6;text-align:center}h1{font-size:22px}p{color:#94989F;font-size:14px;line-height:1.6}</style></head><body><h1>${title}</h1><p>${message}</p></body></html>`;
+}
+
+
 function generateCode() {
   return String(crypto.randomInt(100000, 999999));
 }
@@ -59,7 +73,7 @@ router.post("/signup", async (req, res) => {
   // Users add their own real site via Projects → "+".
 
   try {
-    await sendVerificationEmail(lowerEmail, trimmedName, code);
+    await sendVerificationEmail(lowerEmail, trimmedName, code, verifyLinkFor(userId, code));
   } catch (err) {
     console.error("Failed to send verification email:", err.message);
   }
@@ -91,6 +105,31 @@ router.post("/login", async (req, res) => {
     token,
     user: { id: user.id, name: user.name, email: user.email, emailVerified: !!user.email_verified },
   });
+});
+
+router.get("/verify-link", async (req, res) => {
+  const userId = parseInt(req.query.u, 10);
+  const sig = String(req.query.s || "");
+  if (!userId || !sig) return res.status(400).send(verifyPage("Invalid link", "This verification link is missing information. Open the app and request a new one."));
+
+  const { rows } = await db.query("SELECT id, email_verified, verification_code, verification_expires FROM users WHERE id = $1", [userId]);
+  const user = rows[0];
+  if (!user) return res.status(400).send(verifyPage("Invalid link", "This verification link isn't valid."));
+  if (user.email_verified) return res.send(verifyPage("Email already verified", "You're all set. Go back to the Cem SEO app and sign in."));
+  if (!user.verification_code) return res.status(400).send(verifyPage("Link expired", "This link has already been used or replaced. Open the app and request a new one."));
+
+  const expected = verifySignature(user.id, user.verification_code);
+  const a = Buffer.from(expected);
+  const b = Buffer.from(sig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(400).send(verifyPage("Link expired", "This link has been replaced by a newer one. Use the latest email, or open the app and request a new one."));
+  }
+  if (new Date(user.verification_expires) < new Date()) {
+    return res.status(400).send(verifyPage("Link expired", "This link has expired. Open the app and request a new code."));
+  }
+
+  await db.query("UPDATE users SET email_verified = 1, verification_code = NULL WHERE id = $1", [user.id]);
+  res.send(verifyPage("✅ Email verified", "Your email is verified. Go back to the Cem SEO app and sign in."));
 });
 
 router.post("/verify", requireAuth, async (req, res) => {
@@ -128,7 +167,7 @@ router.post("/resend-code", requireAuth, async (req, res) => {
   ]);
 
   try {
-    await sendVerificationEmail(user.email, user.name, code);
+    await sendVerificationEmail(user.email, user.name, code, verifyLinkFor(user.id, code));
   } catch (err) {
     console.error("Failed to resend verification email:", err.message);
     return res.status(502).json({ error: "Couldn't send the email right now. Try again shortly." });

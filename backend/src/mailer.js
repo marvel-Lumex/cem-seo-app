@@ -35,12 +35,16 @@ async function sendEmail({ to, subject, text, html }) {
   return { sent: true, devMode: false };
 }
 
-async function sendVerificationEmail(toEmail, name, code) {
+async function sendVerificationEmail(toEmail, name, code, verifyLink) {
+  const linkText = verifyLink ? `\n\nOr just tap this link to verify instantly (no need to type the code):\n${verifyLink}` : "";
+  const linkHtml = verifyLink
+    ? `<p style="margin:24px 0;"><a href="${verifyLink}" style="background:#676AF6;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:10px;display:inline-block;">Verify my email</a></p><p style="color:#666;font-size:13px;">Tap the button above — no need to type the code. Then go back to the Cem SEO app and sign in.</p>`
+    : "";
   return sendEmail({
     to: toEmail,
     subject: "Verify your Cem SEO account",
-    text: `Hi ${name},\n\nYour verification code is: ${code}\n\nThis code expires in 15 minutes.`,
-    html: `<p>Hi ${name},</p><p>Your verification code is:</p><h2 style="letter-spacing:4px;">${code}</h2><p>This code expires in 15 minutes.</p>`,
+    text: `Hi ${name},\n\nYour verification code is: ${code}${linkText}\n\nThis expires in 15 minutes.`,
+    html: `<p>Hi ${name},</p>${linkHtml}<p>Or enter this code in the app:</p><h2 style="letter-spacing:4px;">${code}</h2><p>This expires in 15 minutes.</p>`,
   });
 }
 
