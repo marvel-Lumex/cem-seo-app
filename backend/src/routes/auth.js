@@ -390,4 +390,43 @@ router.put("/change-password", requireAuth, async (req, res) => {
   res.json({ changed: true });
 });
 
+// Account deletion (required by Google Play for apps with sign-up). Verifies the
+// password, then removes the user and everything tied to them. Table lists come
+// from the database itself so newly added tables are covered automatically.
+router.delete("/account", requireAuth, async (req, res) => {
+  const { password } = req.body || {};
+  if (!password) return res.status(400).json({ error: "Enter your password to confirm." });
+
+  const { rows } = await db.query("SELECT id, password_hash FROM users WHERE id = $1", [req.userId]);
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "Account not found" });
+  if (!bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: "Incorrect password." });
+  }
+
+  try {
+    const safe = (n) => /^[a-z_][a-z0-9_]*$/.test(n);
+    const { rows: byProject } = await db.query(
+      "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'project_id'"
+    );
+    for (const { table_name } of byProject) {
+      if (!safe(table_name) || table_name === "projects") continue;
+      await db.query(`DELETE FROM "${table_name}" WHERE project_id IN (SELECT id FROM projects WHERE user_id = $1)`, [user.id]);
+    }
+    const { rows: byUser } = await db.query(
+      "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'user_id'"
+    );
+    for (const { table_name } of byUser) {
+      if (!safe(table_name) || table_name === "users") continue;
+      await db.query(`DELETE FROM "${table_name}" WHERE user_id = $1`, [user.id]);
+    }
+    await db.query("DELETE FROM users WHERE id = $1", [user.id]);
+  } catch (err) {
+    console.error("Account deletion failed:", err.message);
+    return res.status(500).json({ error: "Couldn't delete the account right now. Please try again or email contact@lumexalliance.com." });
+  }
+
+  res.json({ deleted: true });
+});
+
 module.exports = router;
