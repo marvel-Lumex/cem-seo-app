@@ -232,17 +232,19 @@ router.get("/:token", async (req, res) => {
     const agencyName = profile.agency_name || "Cem SEO";
     const color = HEX.test(profile.brand_color || "") ? profile.brand_color : "#517EEE";
     const logo = typeof profile.logo_url === "string" && profile.logo_url.startsWith("https://") ? profile.logo_url : null;
+    const siteUrl = typeof profile.website === "string" && profile.website.startsWith("https://") ? profile.website : null;
+    const agencyLink = siteUrl ? `<a href="${esc(siteUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">${esc(agencyName)}</a>` : esc(agencyName);
 
     let body = `<div class="head"><div class="head-in">
       <div class="topline">
-        ${logo ? `<img src="${esc(logo)}" alt="${esc(agencyName)}">` : `<div class="brand">${esc(agencyName)}</div>`}
+        ${logo ? `<img src="${esc(logo)}" alt="${esc(agencyName)}">` : `<div class="brand">${agencyLink}</div>`}
         <button id="printBtn" class="btn" type="button">${PRINT_ICON} Save as PDF</button>
       </div>
-      <div class="kicker">SEO REPORT</div>
+      <div class="kicker">CEM SEO REPORT</div>
       <h1>${esc(project.domain)}</h1>
       <div class="chips">
         ${project.client_name ? `<span class="chip">Prepared for ${esc(project.client_name)}</span>` : ""}
-        <span class="chip">By ${esc(agencyName)}</span>
+        <span class="chip">By ${agencyLink}</span>
         ${audit ? `<span class="chip">Audit date ${esc(dateOnly(audit.run_at))}</span>` : ""}
       </div>
     </div></div><div class="wrap">`;
@@ -318,9 +320,9 @@ router.get("/:token", async (req, res) => {
     }
 
     body += `<p class="noprint">Tap "Save as PDF", then choose "Save as PDF" as the printer.</p>
-      <div class="foot">Prepared by ${esc(agencyName)}${profile.contact_email ? ` &middot; ${esc(profile.contact_email)}` : ""}${
+      <div class="foot">Prepared by ${agencyLink}${profile.contact_email ? ` &middot; ${esc(profile.contact_email)}` : ""}${
       profile.website && String(profile.website).startsWith("https://") ? `<br>${esc(profile.website)}` : ""
-    }<br>Powered by Cem SEO</div>
+    }<br>Powered by <a href="https://lumexalliance.com" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lumex Alliance</a></div>
     </div>`;
 
     res.send(page(`SEO Report: ${project.domain}`, body, color, nonce));
