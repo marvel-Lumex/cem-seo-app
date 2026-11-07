@@ -333,7 +333,7 @@ router.get("/:token", async (req, res) => {
     body += `<p class="noprint">Tap "Save as PDF", then choose "Save as PDF" as the printer.</p>
       <div class="foot">Prepared by ${agencyLink}${profile.contact_email ? ` &middot; ${esc(profile.contact_email)}` : ""}${
       profile.website && String(profile.website).startsWith("https://") ? `<br>${esc(profile.website)}` : ""
-    }<br>Powered by <a href="https://www.lumexalliance.com" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lumex Alliance</a></div>
+    }<br>Powered by <a href="https://lumexalliance.com/" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lumex Alliance</a></div>
     </div>`;
 
     res.send(page(`SEO Report: ${project.domain}`, body, color, nonce));
