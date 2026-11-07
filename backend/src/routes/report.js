@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const express = require("express");
 const db = require("../db");
+const { explainFor } = require("../utils/issueExplain");
 
 const router = express.Router();
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -38,6 +39,19 @@ function clean(v) {
 function scoreColor(n) {
   return n >= 90 ? "#1B9E5A" : n >= 50 ? "#D98A00" : "#D63B3B";
 }
+function darken(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 255) * f);
+  const g = Math.round(((n >> 8) & 255) * f);
+  const b = Math.round((n & 255) * f);
+  return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+function verdict(score) {
+  if (score >= 90) return "Excellent. This site is in strong shape.";
+  if (score >= 70) return "Good, with room to improve.";
+  if (score >= 50) return "Needs attention. Fixing the items below will help.";
+  return "Needs urgent attention. Start with the items below.";
+}
 
 const CATEGORY_LABELS = {
   performance: "Performance",
@@ -47,7 +61,11 @@ const CATEGORY_LABELS = {
   seo: "SEO",
 };
 
-function page(title, body, color) {
+const PRINT_ICON =
+  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>';
+
+function page(title, body, color, nonce) {
+  const dark = darken(color, 0.72);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -56,36 +74,58 @@ function page(title, body, color) {
 <meta name="robots" content="noindex,nofollow">
 <title>${esc(title)}</title>
 <style>
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #F5F6FA; color: #1B1E2B; }
-  .head { background: ${color}; color: #fff; padding: 28px 20px; }
-  .head-in, .wrap { max-width: 760px; margin: 0 auto; }
-  .head img { max-height: 44px; max-width: 200px; display: block; margin-bottom: 12px; background: #fff; padding: 4px 8px; border-radius: 8px; }
-  .head h1 { margin: 0; font-size: 22px; }
-  .head p { margin: 6px 0 0; opacity: .9; font-size: 14px; }
-  .wrap { padding: 20px; }
-  .card { background: #fff; border: 1px solid #E4E6EE; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
-  .card h2 { margin: 0 0 12px; font-size: 16px; }
-  .muted { color: #6B7080; font-size: 14px; line-height: 1.5; }
-  .score { font-size: 56px; font-weight: 800; line-height: 1; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .tile { flex: 1 1 120px; background: #F5F6FA; border-radius: 10px; padding: 12px; text-align: center; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 12mm; }
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #F3F4F9; color: #1B1E2B; }
+  .head { background: linear-gradient(135deg, ${color}, ${dark}); color: #fff; padding: 22px 20px 34px; }
+  .head-in, .wrap { max-width: 780px; margin: 0 auto; }
+  .topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+  .topline img { max-height: 40px; max-width: 180px; background: #fff; padding: 4px 8px; border-radius: 8px; }
+  .brand { font-weight: 800; font-size: 17px; letter-spacing: .2px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; background: #fff; color: ${dark}; border: 0; border-radius: 999px; padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .kicker { font-size: 12px; letter-spacing: 2px; opacity: .85; font-weight: 700; }
+  .head h1 { margin: 6px 0 14px; font-size: 30px; word-break: break-all; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: rgba(255,255,255,.18); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+  .wrap { padding: 0 20px 20px; margin-top: -18px; }
+  .card { background: #fff; border: 1px solid #E4E6EE; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(20,24,50,.05); }
+  .card h2 { margin: 0 0 14px; font-size: 16px; }
+  .muted { color: #6B7080; font-size: 13px; line-height: 1.5; margin: 8px 0 0; }
+  .hero { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .ring { width: 150px; height: 150px; flex: 0 0 auto; }
+  .hero-text { flex: 1 1 220px; }
+  .verdict { font-size: 18px; font-weight: 700; margin: 0 0 12px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tile { flex: 1 1 100px; background: #F3F4F9; border-radius: 12px; padding: 12px; text-align: center; }
   .tile b { display: block; font-size: 22px; }
   .tile span { font-size: 12px; color: #6B7080; }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li { padding: 12px 0; border-top: 1px solid #EDEEF3; }
-  li:first-child { border-top: 0; }
-  .it { font-size: 14px; font-weight: 600; }
-  .id { font-size: 13px; color: #6B7080; margin-top: 4px; line-height: 1.5; }
+  .bar { margin-bottom: 14px; }
+  .bar:last-child { margin-bottom: 0; }
+  .bar-top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+  .track { height: 10px; background: #EDEEF3; border-radius: 999px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 999px; }
+  ol { list-style: none; margin: 0; padding: 0; }
+  ol li { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid #EDEEF3; }
+  ol li:first-child { border-top: 0; padding-top: 0; }
+  .num { flex: 0 0 28px; height: 28px; border-radius: 50%; background: ${color}; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .it { font-size: 14px; font-weight: 700; }
+  .id { font-size: 13px; color: #5A5F73; margin-top: 4px; line-height: 1.55; }
   .sev { display: inline-block; font-size: 11px; text-transform: uppercase; background: #EEF0F8; color: #4A4F66; border-radius: 6px; padding: 2px 6px; margin-bottom: 4px; }
-  .foot { text-align: center; color: #8A8FA3; font-size: 12px; padding: 8px 0 28px; line-height: 1.6; }
-  .noprint { font-size: 12px; color: #8A8FA3; text-align: center; }
-  svg { width: 100%; height: auto; display: block; }
-  @media print { body { background: #fff; } .noprint { display: none; } .card { break-inside: avoid; } }
+  svg { max-width: 100%; }
+  .chart { width: 100%; height: auto; display: block; }
+  .foot { text-align: center; color: #8A8FA3; font-size: 12px; padding: 8px 0 30px; line-height: 1.7; }
+  .noprint { font-size: 12px; color: #8A8FA3; text-align: center; margin-bottom: 8px; }
+  @media print {
+    body { background: #fff; }
+    .btn, .noprint { display: none; }
+    .card { break-inside: avoid; box-shadow: none; }
+    .wrap { margin-top: -10px; }
+  }
 </style>
 </head>
 <body>
 ${body}
+${nonce ? `<script nonce="${nonce}">var b=document.getElementById("printBtn");if(b){b.addEventListener("click",function(){window.print();});}</script>` : ""}
 </body>
 </html>`;
 }
@@ -94,43 +134,55 @@ function notFound(res) {
   res.status(404).send(
     page(
       "Report not available",
-      `<div class="wrap"><div class="card"><h2>This report link is not available</h2><p class="muted">It may have been turned off by the sender. Please contact them for a new link.</p></div></div>`,
-      "#517EEE"
+      `<div class="wrap" style="margin-top:40px"><div class="card"><h2>This report link is not available</h2><p class="muted">It may have been turned off by the sender. Please contact them for a new link.</p></div></div>`,
+      "#517EEE",
+      ""
     )
   );
+}
+
+function ring(score) {
+  const c = 2 * Math.PI * 58;
+  const dash = (Math.max(0, Math.min(100, score)) / 100) * c;
+  const col = scoreColor(score);
+  return `<svg class="ring" viewBox="0 0 140 140" role="img" aria-label="Score ${score} out of 100"><circle cx="70" cy="70" r="58" fill="none" stroke="#EDEEF3" stroke-width="12"/><circle cx="70" cy="70" r="58" fill="none" stroke="${col}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 70 70)"/><text x="70" y="80" text-anchor="middle" font-size="38" font-weight="800" fill="${col}">${score}</text></svg>`;
 }
 
 function trendSvg(points, color) {
   if (points.length < 2) return "";
   const w = 600;
-  const h = 140;
-  const pad = 16;
+  const h = 150;
+  const pad = 18;
   const xs = points.map((_, i) => pad + (i * (w - 2 * pad)) / (points.length - 1));
   const ys = points.map((p) => h - pad - (Math.max(0, Math.min(100, p.score)) / 100) * (h - 2 * pad));
   const line = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
-  const dots = xs.map((x, i) => `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="4" fill="${color}"/>`).join("");
-  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Health score trend"><polyline points="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round"/>${dots}</svg>`;
+  const area = `${pad},${h - pad} ${line} ${xs[xs.length - 1].toFixed(1)},${h - pad}`;
+  const dots = xs
+    .map((x, i) => `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="${i === xs.length - 1 ? 6 : 4}" fill="${color}"/>`)
+    .join("");
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Health score trend"><polygon points="${area}" fill="${color}" opacity="0.12"/><polyline points="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
 }
 
-function renderIssue(i) {
-  if (typeof i === "string") return `<li><div class="it">${esc(clean(i))}</div></li>`;
-  if (!i || typeof i !== "object") return "";
+function normalizeIssue(i) {
+  if (typeof i === "string") {
+    const title = clean(i);
+    return title ? { title, detail: explainFor(title), sev: "" } : null;
+  }
+  if (!i || typeof i !== "object") return null;
   const title = clean(i.title || i.name || i.issue || i.message || i.label || "");
-  const detail = clean(i.description || i.detail || i.details || i.fix || i.recommendation || i.tip || "");
+  const detail = explainFor(title) || clean(i.description || i.detail || i.details || i.fix || i.recommendation || i.tip || "");
   const sev = clean(i.severity || i.impact || i.level || "");
-  if (!title && !detail) return "";
-  return `<li>${sev ? `<span class="sev">${esc(sev)}</span>` : ""}<div class="it">${esc(title || detail)}</div>${
-    title && detail ? `<div class="id">${esc(detail)}</div>` : ""
-  }</li>`;
+  if (!title && !detail) return null;
+  return { title: title || detail, detail: title ? detail : "", sev };
 }
 
 router.get("/:token", async (req, res) => {
+  const nonce = crypto.randomBytes(16).toString("base64");
   res.set({
     "X-Robots-Tag": "noindex, nofollow",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
-    "Content-Security-Policy":
-      "default-src 'none'; style-src 'unsafe-inline'; img-src https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; img-src https:; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
   });
   res.type("html");
 
@@ -180,63 +232,96 @@ router.get("/:token", async (req, res) => {
     const logo = typeof profile.logo_url === "string" && profile.logo_url.startsWith("https://") ? profile.logo_url : null;
 
     let body = `<div class="head"><div class="head-in">
-      ${logo ? `<img src="${esc(logo)}" alt="${esc(agencyName)}">` : ""}
-      <h1>SEO Report: ${esc(project.domain)}</h1>
-      <p>${project.client_name ? `Prepared for ${esc(project.client_name)} by ` : "Prepared by "}${esc(agencyName)}${
-      audit ? ` &middot; ${esc(dateOnly(audit.run_at))}` : ""
-    }</p>
+      <div class="topline">
+        ${logo ? `<img src="${esc(logo)}" alt="${esc(agencyName)}">` : `<div class="brand">${esc(agencyName)}</div>`}
+        <button id="printBtn" class="btn" type="button">${PRINT_ICON} Save as PDF</button>
+      </div>
+      <div class="kicker">SEO REPORT</div>
+      <h1>${esc(project.domain)}</h1>
+      <div class="chips">
+        ${project.client_name ? `<span class="chip">Prepared for ${esc(project.client_name)}</span>` : ""}
+        <span class="chip">By ${esc(agencyName)}</span>
+        ${audit ? `<span class="chip">Audit date ${esc(dateOnly(audit.run_at))}</span>` : ""}
+      </div>
     </div></div><div class="wrap">`;
 
     if (!audit) {
       body += `<div class="card"><h2>No audit yet</h2><p class="muted">An audit has not been run for this site yet. Please check back soon.</p></div>`;
     } else {
-      const score = Number(audit.health_score) || 0;
-      body += `<div class="card"><h2>Overall SEO health</h2>
-        <div class="score" style="color:${scoreColor(score)}">${esc(score)}<span style="font-size:20px;color:#6B7080">/100</span></div>
-        <div class="row" style="margin-top:16px">
-          <div class="tile"><b style="color:#D63B3B">${esc(audit.critical_issues ?? 0)}</b><span>Critical</span></div>
-          <div class="tile"><b style="color:#D98A00">${esc(audit.warnings ?? 0)}</b><span>Warnings</span></div>
-          <div class="tile"><b>${esc(audit.notices ?? 0)}</b><span>Notices</span></div>
-          <div class="tile"><b style="color:#1B9E5A">${esc(audit.passed_checks ?? 0)}</b><span>Passed</span></div>
+      const score = Math.round(Number(audit.health_score) || 0);
+      const crit = Number(audit.critical_issues) || 0;
+      const change =
+        trend.length >= 2
+          ? trend[trend.length - 1].score - trend[0].score
+          : null;
+      body += `<div class="card"><div class="hero">
+          ${ring(score)}
+          <div class="hero-text">
+            <p class="verdict">${esc(verdict(score))}</p>
+            <div class="row">
+              <div class="tile"><b style="color:#D63B3B">${esc(audit.critical_issues ?? 0)}</b><span>Critical</span></div>
+              <div class="tile"><b style="color:#D98A00">${esc(audit.warnings ?? 0)}</b><span>Warnings</span></div>
+              <div class="tile"><b>${esc(audit.notices ?? 0)}</b><span>Notices</span></div>
+              <div class="tile"><b style="color:#1B9E5A">${esc(audit.passed_checks ?? 0)}</b><span>Passed</span></div>
+            </div>
+            ${crit > 0 ? `<p class="muted">${esc(crit)} critical issue${crit === 1 ? "" : "s"} should be fixed first.</p>` : ""}
+          </div>
         </div></div>`;
 
       const cats = parseJson(audit.category_scores_json);
       if (cats && typeof cats === "object") {
-        const tiles = Object.entries(cats)
+        const bars = Object.entries(cats)
           .filter(([, v]) => typeof v === "number" && isFinite(v))
           .map(([k, v]) => {
             const val = Math.round(v <= 1 && v > 0 ? v * 100 : v);
-            return `<div class="tile"><b style="color:${scoreColor(val)}">${esc(val)}</b><span>${esc(CATEGORY_LABELS[k] || k)}</span></div>`;
+            const col = scoreColor(val);
+            return `<div class="bar"><div class="bar-top"><span>${esc(CATEGORY_LABELS[k] || k)}</span><b style="color:${col}">${esc(val)}</b></div><div class="track"><div class="fill" style="width:${Math.max(0, Math.min(100, val))}%;background:${col}"></div></div></div>`;
           })
           .join("");
-        if (tiles) body += `<div class="card"><h2>Scores by category</h2><div class="row">${tiles}</div></div>`;
+        if (bars) body += `<div class="card"><h2>Scores by category</h2>${bars}</div>`;
       }
 
       const svg = trendSvg(trend, color);
       if (svg) {
+        const changeText =
+          change === null || change === 0
+            ? "No change"
+            : `${change > 0 ? "Up" : "Down"} ${Math.abs(change)} point${Math.abs(change) === 1 ? "" : "s"}`;
         body += `<div class="card"><h2>Health score over time</h2>${svg}<p class="muted">${esc(dateOnly(trend[0].at))} to ${esc(
           dateOnly(trend[trend.length - 1].at)
-        )}</p></div>`;
+        )} &middot; ${esc(changeText)} since the first audit shown</p></div>`;
       }
 
       const issues = parseJson(audit.top_issues_json);
-      const items = Array.isArray(issues) ? issues.slice(0, 8).map(renderIssue).filter(Boolean).join("") : "";
-      if (items) body += `<div class="card"><h2>What to fix first</h2><ul>${items}</ul></div>`;
+      const list = Array.isArray(issues) ? issues.slice(0, 8).map(normalizeIssue).filter(Boolean) : [];
+      if (list.length) {
+        const items = list
+          .map(
+            (it, n) =>
+              `<li><span class="num">${n + 1}</span><div>${it.sev ? `<span class="sev">${esc(it.sev)}</span>` : ""}<div class="it">${esc(
+                it.title
+              )}</div>${it.detail ? `<div class="id">${esc(it.detail)}</div>` : ""}</div></li>`
+          )
+          .join("");
+        body += `<div class="card"><h2>What to fix first</h2><ol>${items}</ol></div>`;
+      }
     }
 
     if (project.gsc_connected && Number(project.total_impressions) > 0) {
       body += `<div class="card"><h2>Google search performance</h2><div class="row">
-        <div class="tile"><b>${esc(project.total_clicks ?? 0)}</b><span>Clicks</span></div>
-        <div class="tile"><b>${esc(project.total_impressions ?? 0)}</b><span>Impressions</span></div>
+        <div class="tile"><b>${esc(Number(project.total_clicks || 0).toLocaleString("en-US"))}</b><span>Clicks</span></div>
+        <div class="tile"><b>${esc(Number(project.total_impressions || 0).toLocaleString("en-US"))}</b><span>Impressions</span></div>
         <div class="tile"><b>${esc(Number(project.avg_position || 0).toFixed(1))}</b><span>Avg. position</span></div>
-      </div></div>`;
+      </div><p class="muted">Source: Google Search Console</p></div>`;
     }
 
-    body += `<p class="noprint">To save this report as a PDF, use your browser's Print option.</p>
-      <div class="foot">Prepared by ${esc(agencyName)}${profile.contact_email ? ` &middot; ${esc(profile.contact_email)}` : ""}<br>Powered by Cem SEO</div>
+    body += `<p class="noprint">Tap "Save as PDF", then choose "Save as PDF" as the printer.</p>
+      <div class="foot">Prepared by ${esc(agencyName)}${profile.contact_email ? ` &middot; ${esc(profile.contact_email)}` : ""}${
+      profile.website && String(profile.website).startsWith("https://") ? `<br>${esc(profile.website)}` : ""
+    }<br>Powered by Cem SEO</div>
     </div>`;
 
-    res.send(page(`SEO Report: ${project.domain}`, body, color));
+    res.send(page(`SEO Report: ${project.domain}`, body, color, nonce));
   } catch (err) {
     console.error("Report page error:", err.message);
     res.status(500).send("Something went wrong");
