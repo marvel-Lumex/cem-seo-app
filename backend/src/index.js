@@ -18,6 +18,9 @@ const opportunitiesRoutes = require("./routes/opportunities");
 const growthRoutes = require("./routes/growth");
 const searchPerformanceRoutes = require("./routes/searchPerformance");
 const adminRoutes = require("./routes/admin");
+require("./services/agencySchema");
+const agencyRoutes = require("./routes/agency");
+const reportRoutes = require("./routes/report");
 
 const app = express();
 
@@ -133,6 +136,8 @@ app.use("/api/billing", generalLimiter, billingRoutes);
 app.use("/api/opportunities", generalLimiter, opportunitiesRoutes);
 app.use("/api/growth", generalLimiter, growthRoutes);
 app.use("/api/search-performance", generalLimiter, searchPerformanceRoutes);
+app.use("/api/agency", generalLimiter, agencyRoutes);
+app.use("/r", generalLimiter, reportRoutes);
 
 Sentry.setupExpressErrorHandler(app);
 
