@@ -32,6 +32,8 @@ db.ready
         view_count INTEGER DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS report_links_project_idx ON report_links(project_id);
+      ALTER TABLE report_links ADD COLUMN IF NOT EXISTS gsc_json TEXT;
+      ALTER TABLE report_links ADD COLUMN IF NOT EXISTS gsc_fetched_at TIMESTAMP;
     `)
   )
   .then(() => console.log("Agency tables ready"))

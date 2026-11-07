@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const express = require("express");
 const db = require("../db");
 const { explainFor } = require("../utils/issueExplain");
+const { getGscSnapshot } = require("../services/reportGsc");
 
 const router = express.Router();
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -208,6 +209,7 @@ router.get("/:token", async (req, res) => {
     const project = projRows[0];
     if (!project) return notFound(res);
 
+    const gsc = await getGscSnapshot(link.id, link.project_id);
     const { rows: profRows } = await db.query("SELECT * FROM agency_profiles WHERE user_id = $1", [link.user_id]);
     const profile = profRows[0] || {};
 
@@ -307,12 +309,12 @@ router.get("/:token", async (req, res) => {
       }
     }
 
-    if (false && project.gsc_connected && Number(project.total_impressions) > 0) {
+    if (gsc && Number(gsc.impressions) > 0) {
       body += `<div class="card"><h2>Google search performance</h2><div class="row">
-        <div class="tile"><b>${esc(Number(project.total_clicks || 0).toLocaleString("en-US"))}</b><span>Clicks</span></div>
-        <div class="tile"><b>${esc(Number(project.total_impressions || 0).toLocaleString("en-US"))}</b><span>Impressions</span></div>
-        <div class="tile"><b>${esc(Number(project.avg_position || 0).toFixed(1))}</b><span>Avg. position</span></div>
-      </div><p class="muted">Source: Google Search Console</p></div>`;
+        <div class="tile"><b>${esc(Number(gsc.clicks || 0).toLocaleString("en-US"))}</b><span>Clicks</span></div>
+        <div class="tile"><b>${esc(Number(gsc.impressions || 0).toLocaleString("en-US"))}</b><span>Impressions</span></div>
+        <div class="tile"><b>${esc(Number(gsc.position || 0).toFixed(1))}</b><span>Avg. position</span></div>
+      </div><p class="muted">Source: Google Search Console &middot; ${esc(gsc.startDate)} to ${esc(gsc.endDate)} (last 28 days)</p></div>`;
     }
 
     body += `<p class="noprint">Tap "Save as PDF", then choose "Save as PDF" as the printer.</p>
