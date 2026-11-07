@@ -307,7 +307,7 @@ router.get("/:token", async (req, res) => {
       }
     }
 
-    if (project.gsc_connected && Number(project.total_impressions) > 0) {
+    if (false && project.gsc_connected && Number(project.total_impressions) > 0) {
       body += `<div class="card"><h2>Google search performance</h2><div class="row">
         <div class="tile"><b>${esc(Number(project.total_clicks || 0).toLocaleString("en-US"))}</b><span>Clicks</span></div>
         <div class="tile"><b>${esc(Number(project.total_impressions || 0).toLocaleString("en-US"))}</b><span>Impressions</span></div>
