@@ -34,6 +34,7 @@ db.ready
       CREATE INDEX IF NOT EXISTS report_links_project_idx ON report_links(project_id);
       ALTER TABLE report_links ADD COLUMN IF NOT EXISTS gsc_json TEXT;
       ALTER TABLE report_links ADD COLUMN IF NOT EXISTS gsc_fetched_at TIMESTAMP;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo_url TEXT;
     `)
   )
   .then(() => console.log("Agency tables ready"))

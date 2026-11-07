@@ -3,6 +3,7 @@ const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { getUserLimits } = require("../services/planLimits");
+const { makeToken } = require("../services/reportToken");
 
 const router = express.Router();
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -80,7 +81,7 @@ router.get(
   "/clients",
   wrap(async (req, res) => {
     const { rows } = await db.query(
-      `SELECT c.id, c.name, c.contact_email AS "contactEmail", c.created_at AS "createdAt",
+      `SELECT c.id, c.name, c.contact_email AS "contactEmail", c.logo_url AS "logoUrl", c.created_at AS "createdAt",
               COUNT(p.id)::int AS "siteCount"
        FROM clients c LEFT JOIN projects p ON p.client_id = c.id
        WHERE c.user_id = $1 GROUP BY c.id ORDER BY c.name ASC`,
@@ -112,7 +113,7 @@ router.get(
   "/clients/:id",
   wrap(async (req, res) => {
     const { rows } = await db.query(
-      `SELECT id, name, contact_email AS "contactEmail", notes, created_at AS "createdAt"
+      `SELECT id, name, contact_email AS "contactEmail", notes, logo_url AS "logoUrl", created_at AS "createdAt"
        FROM clients WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.userId]
     );
@@ -200,13 +201,18 @@ router.post(
     const project = await ownProject(req.userId, req.params.id);
     if (!project) return res.status(404).json({ error: "Project not found" });
 
+        const renew = !!(req.body && req.body.renew);
+    if (!renew) {
+      const { rows: existing } = await db.query("SELECT id FROM report_links WHERE project_id = $1 AND revoked_at IS NULL ORDER BY id DESC LIMIT 1", [project.id]);
+      if (existing[0]) return res.json({ url: `${baseUrl(req)}/r/${makeToken(existing[0].id)}`, reused: true });
+    }
     const token = crypto.randomBytes(32).toString("base64url");
     const hash = crypto.createHash("sha256").update(token).digest("hex");
 
     await db.query("UPDATE report_links SET revoked_at = NOW() WHERE project_id = $1 AND revoked_at IS NULL", [project.id]);
-    await db.query("INSERT INTO report_links (project_id, user_id, token_hash) VALUES ($1, $2, $3)", [project.id, req.userId, hash]);
+    const { rows: ins } = await db.query("INSERT INTO report_links (project_id, user_id, token_hash) VALUES ($1, $2, $3) RETURNING id", [project.id, req.userId, hash]);
 
-    res.status(201).json({ url: `${baseUrl(req)}/r/${token}` });
+    res.status(201).json({ url: `${baseUrl(req)}/r/${makeToken(ins[0].id)}` });
   })
 );
 
@@ -217,6 +223,21 @@ router.delete(
     if (!project) return res.status(404).json({ error: "Project not found" });
     await db.query("UPDATE report_links SET revoked_at = NOW() WHERE project_id = $1 AND revoked_at IS NULL", [project.id]);
     res.json({ revoked: true });
+  })
+);
+
+router.put(
+  "/clients/:id/photo",
+  wrap(async (req, res) => {
+    const logoUrl = str(req.body && req.body.logoUrl, 300);
+    if (logoUrl && !isHttps(logoUrl)) return res.status(400).json({ error: "Photo link must start with https://" });
+    const { rowCount } = await db.query("UPDATE clients SET logo_url = $1 WHERE id = $2 AND user_id = $3", [
+      logoUrl || null,
+      req.params.id,
+      req.userId,
+    ]);
+    if (!rowCount) return res.status(404).json({ error: "Client not found" });
+    res.json({ id: Number(req.params.id), logoUrl });
   })
 );
 

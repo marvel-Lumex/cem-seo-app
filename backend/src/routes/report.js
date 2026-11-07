@@ -3,6 +3,7 @@ const express = require("express");
 const db = require("../db");
 const { explainFor } = require("../utils/issueExplain");
 const { getGscSnapshot } = require("../services/reportGsc");
+const { verifyToken } = require("../services/reportToken");
 
 const router = express.Router();
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -88,6 +89,11 @@ function page(title, body, color, nonce) {
   .head h1 { margin: 6px 0 14px; font-size: 30px; word-break: break-all; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { background: rgba(255,255,255,.18); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+  .client { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+  .avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #fff; border: 2px solid rgba(255,255,255,.7); flex: 0 0 auto; }
+  .avatar.ini { display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.2); color: #fff; font-size: 20px; font-weight: 800; }
+  .cl { font-size: 12px; opacity: .85; }
+  .cn { font-size: 18px; font-weight: 700; }
   .wrap { padding: 0 20px 20px; margin-top: -18px; }
   .card { background: #fff; border: 1px solid #E4E6EE; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(20,24,50,.05); }
   .card h2 { margin: 0 0 14px; font-size: 16px; }
@@ -190,18 +196,19 @@ router.get("/:token", async (req, res) => {
   try {
     const token = String(req.params.token || "");
     if (token.length < 20 || token.length > 100) return notFound(res);
+    const signedId = verifyToken(token);
     const hash = crypto.createHash("sha256").update(token).digest("hex");
 
     const { rows: linkRows } = await db.query(
-      "SELECT id, project_id, user_id FROM report_links WHERE token_hash = $1 AND revoked_at IS NULL",
-      [hash]
+      "SELECT id, project_id, user_id FROM report_links WHERE (token_hash = $1 OR id = $2) AND revoked_at IS NULL",
+      [hash, signedId || 0]
     );
     const link = linkRows[0];
     if (!link) return notFound(res);
 
     const { rows: projRows } = await db.query(
       `SELECT p.domain, p.total_clicks, p.total_impressions, p.avg_position,
-              (p.gsc_refresh_token IS NOT NULL) AS gsc_connected, c.name AS client_name
+              (p.gsc_refresh_token IS NOT NULL) AS gsc_connected, c.name AS client_name, c.logo_url AS client_logo
        FROM projects p LEFT JOIN clients c ON c.id = p.client_id
        WHERE p.id = $1`,
       [link.project_id]
@@ -233,6 +240,9 @@ router.get("/:token", async (req, res) => {
     const color = HEX.test(profile.brand_color || "") ? profile.brand_color : "#517EEE";
     const logo = typeof profile.logo_url === "string" && profile.logo_url.startsWith("https://") ? profile.logo_url : null;
     const siteUrl = typeof profile.website === "string" && profile.website.startsWith("https://") ? profile.website : null;
+    const clientPhoto = typeof project.client_logo === "string" && project.client_logo.startsWith("https://") ? project.client_logo : null;
+    const clientInitial = String(project.client_name || "?").trim().charAt(0).toUpperCase();
+    const clientAvatar = clientPhoto ? `<img class="avatar" src="${esc(clientPhoto)}" alt="">` : `<span class="avatar ini">${esc(clientInitial)}</span>`;
     const agencyLink = siteUrl ? `<a href="${esc(siteUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">${esc(agencyName)}</a>` : esc(agencyName);
 
     let body = `<div class="head"><div class="head-in">
@@ -242,8 +252,9 @@ router.get("/:token", async (req, res) => {
       </div>
       <div class="kicker">CEM SEO REPORT</div>
       <h1>${esc(project.domain)}</h1>
+      ${project.client_name ? `<div class="client">${clientAvatar}<div><div class="cl">Prepared for</div><div class="cn">${esc(project.client_name)}</div></div></div>` : ""}
       <div class="chips">
-        ${project.client_name ? `<span class="chip">Prepared for ${esc(project.client_name)}</span>` : ""}
+        
         <span class="chip">By ${agencyLink}</span>
         ${audit ? `<span class="chip">Audit date ${esc(dateOnly(audit.run_at))}</span>` : ""}
       </div>
@@ -322,7 +333,7 @@ router.get("/:token", async (req, res) => {
     body += `<p class="noprint">Tap "Save as PDF", then choose "Save as PDF" as the printer.</p>
       <div class="foot">Prepared by ${agencyLink}${profile.contact_email ? ` &middot; ${esc(profile.contact_email)}` : ""}${
       profile.website && String(profile.website).startsWith("https://") ? `<br>${esc(profile.website)}` : ""
-    }<br>Powered by <a href="https://lumexalliance.com" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lumex Alliance</a></div>
+    }<br>Powered by <a href="https://www.lumexalliance.com" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lumex Alliance</a></div>
     </div>`;
 
     res.send(page(`SEO Report: ${project.domain}`, body, color, nonce));
