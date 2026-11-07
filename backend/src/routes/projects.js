@@ -79,6 +79,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     backlinks: project.backlinks,
     lastAuditAt: project.last_audit_at,
     isActive: project.id === userRows[0]?.active_project_id,
+    clientId: project.client_id ?? null,
     latestAudit: latestAudit
       ? {
           healthScore: latestAudit.health_score,
