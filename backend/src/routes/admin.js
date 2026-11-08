@@ -1,5 +1,6 @@
 const express = require("express");
 const db = require("../db");
+const { getTrafficHtml, esc } = require("../services/trafficStats");
 
 const router = express.Router();
 
@@ -25,6 +26,7 @@ router.get("/", async (req, res) => {
     const { rows: projectCountRows } = await db.query("SELECT COUNT(*) AS count FROM projects");
     const { rows: auditCountRows } = await db.query("SELECT COUNT(*) AS count FROM audits");
 
+    const trafficHtml = await getTrafficHtml();
     const planPrices = { growth: 25000, agency: 55000 };
     let estimatedMonthlyRevenue = 0;
     const planBreakdown = planRows.map((r) => {
@@ -70,10 +72,12 @@ router.get("/", async (req, res) => {
   </div>
   <p style="color:#94989F;font-size:12px;margin-top:8px;">Estimated monthly revenue: ₦${estimatedMonthlyRevenue.toLocaleString()} (based on current active plans — not a Paystack-verified figure)</p>
 
+  ${trafficHtml}
+
   <h2>Recent signups</h2>
   <table>
     <tr><th>Name</th><th>Email</th><th>Joined</th></tr>
-    ${recentSignups.map((u) => `<tr><td>${u.name}</td><td>${u.email}</td><td>${new Date(u.created_at).toLocaleDateString()}</td></tr>`).join("")}
+    ${recentSignups.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${new Date(u.created_at).toLocaleDateString()}</td></tr>`).join("")}
   </table>
 </body>
 </html>`);

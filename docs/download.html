@@ -79,5 +79,22 @@
   </p>
 </div>
 
+<script>
+(function(){
+  var API="https://cem-seo-backend.onrender.com/api/track/event";
+  function send(ev){
+    try{
+      fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},keepalive:true,
+        body:JSON.stringify({event:ev,ref:document.referrer||"",utm:new URLSearchParams(location.search).get("utm_source")||""})
+      }).catch(function(){});
+    }catch(e){}
+  }
+  try{ if(!sessionStorage.getItem("cs_pv")){ sessionStorage.setItem("cs_pv","1"); send("page_view"); } }catch(e){ send("page_view"); }
+  document.addEventListener("click",function(e){
+    var a=e.target&&e.target.closest?e.target.closest("a"):null;
+    if(a&&/cemseo\.apk/.test(a.getAttribute("href")||"")) send("download_click");
+  });
+})();
+</script>
 </body>
 </html>

@@ -19,6 +19,8 @@ const growthRoutes = require("./routes/growth");
 const searchPerformanceRoutes = require("./routes/searchPerformance");
 const adminRoutes = require("./routes/admin");
 require("./services/agencySchema");
+require("./services/trackSchema");
+const trackRoutes = require("./routes/track");
 const agencyRoutes = require("./routes/agency");
 const reportRoutes = require("./routes/report");
 
@@ -125,6 +127,7 @@ app.get("/payment-complete", (req, res) => {
 });
 
 app.use("/admin", adminRoutes);
+app.use("/api/track", trackRoutes);
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/dashboard", generalLimiter, dashboardRoutes);
