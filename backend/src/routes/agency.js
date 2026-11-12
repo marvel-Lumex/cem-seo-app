@@ -4,6 +4,7 @@ const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { getUserLimits } = require("../services/planLimits");
 const { makeToken } = require("../services/reportToken");
+const pipelume = require("../services/pipelume");
 
 const router = express.Router();
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -105,6 +106,7 @@ router.post(
       "INSERT INTO clients (user_id, name, contact_email, notes) VALUES ($1, $2, $3, $4) RETURNING id",
       [req.userId, name, contactEmail || null, notes || null]
     );
+    pipelume.syncClient(req.userId, rows[0].id);
     res.status(201).json({ id: rows[0].id, name, contactEmail, notes });
   })
 );
@@ -142,6 +144,7 @@ router.put(
       [name, contactEmail || null, notes || null, req.params.id, req.userId]
     );
     if (!rowCount) return res.status(404).json({ error: "Client not found" });
+    pipelume.syncClient(req.userId, req.params.id);
     res.json({ id: Number(req.params.id), name, contactEmail, notes });
   })
 );
@@ -171,6 +174,7 @@ router.put(
       if (!rows[0]) return res.status(404).json({ error: "Client not found" });
     }
     await db.query("UPDATE projects SET client_id = $1 WHERE id = $2", [clientId, project.id]);
+    if (clientId !== null) pipelume.syncClient(req.userId, clientId);
     res.json({ projectId: project.id, clientId });
   })
 );

@@ -20,9 +20,11 @@ const searchPerformanceRoutes = require("./routes/searchPerformance");
 const adminRoutes = require("./routes/admin");
 require("./services/agencySchema");
 require("./services/trackSchema");
+require("./services/pipelumeSchema");
 const trackRoutes = require("./routes/track");
 const agencyRoutes = require("./routes/agency");
 const reportRoutes = require("./routes/report");
+const pipelumeRoutes = require("./routes/pipelume");
 
 const app = express();
 
@@ -140,6 +142,7 @@ app.use("/api/opportunities", generalLimiter, opportunitiesRoutes);
 app.use("/api/growth", generalLimiter, growthRoutes);
 app.use("/api/search-performance", generalLimiter, searchPerformanceRoutes);
 app.use("/api/agency", generalLimiter, agencyRoutes);
+app.use("/api/pipelume", generalLimiter, pipelumeRoutes);
 app.use("/r", generalLimiter, reportRoutes);
 
 Sentry.setupExpressErrorHandler(app);

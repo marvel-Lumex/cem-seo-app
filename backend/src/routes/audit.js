@@ -6,6 +6,7 @@ const { getActiveProject } = require("../services/activeProject");
 const { checkAndSendAuditAlert } = require("../services/alerts");
 const { checkTechnicalSeo } = require("../services/technicalSeo");
 const { getUserLimits } = require("../services/planLimits");
+const pipelume = require("../services/pipelume");
 
 const router = express.Router();
 
@@ -106,6 +107,7 @@ router.post("/run", requireAuth, async (req, res) => {
   ]);
 
   checkAndSendAuditAlert(req.userId, project, { healthScore, criticalIssues }, previousAudit);
+  pipelume.onAudit(req.userId, project.id, { healthScore, criticalIssues });
 
   res.status(201).json({
     healthScore,
